@@ -12,5 +12,8 @@
     "backend": "cd backend && npm run dev",
     "install:all": "npm install && cd mobile && npm install && cd ../backend && npm install",
     "setup": "chmod +x scripts/setup-dev.sh && ./scripts/setup-dev.sh"
+  },
+  "dependencies": {
+    "postgres": "^3.4.8"
   }
 }
