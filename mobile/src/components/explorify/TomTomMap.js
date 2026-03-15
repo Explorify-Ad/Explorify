@@ -1,28 +1,120 @@
-import React, { useRef, useImperativeHandle, forwardRef } from 'react';
+import React, { useRef, useImperativeHandle, forwardRef, useMemo } from 'react';
 import { StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 const API_KEY = process.env.EXPO_PUBLIC_TOMTOM_API_KEY;
 
-function buildHTML(lat, lon, landmarks) {
+function buildHTML(lat, lon, landmarks, expeditions = []) {
+  const expeditionsJS = expeditions
+    .filter((exp) => exp.landmark_lat != null && exp.landmark_lon != null)
+    .map((exp) => `
+      (function() {
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'position:relative;width:48px;height:48px;cursor:pointer;';
+
+        var ring = document.createElement('div');
+        ring.style.cssText = [
+          'position:absolute','top:0','left:0',
+          'width:48px','height:48px','border-radius:50%',
+          'border:2px solid rgba(255,107,107,0.55)',
+          'animation:expPulse 1.8s ease-out infinite',
+        ].join(';');
+
+        var dot = document.createElement('div');
+        dot.style.cssText = [
+          'position:absolute','top:10px','left:10px',
+          'width:28px','height:28px','border-radius:50%',
+          'background:#FF6B6B','border:2.5px solid white',
+          'box-shadow:0 2px 8px rgba(255,107,107,0.5)',
+          'font-size:13px','line-height:28px','text-align:center',
+        ].join(';');
+        dot.textContent = '\\uD83D\\uDDFA';
+
+        wrap.appendChild(ring);
+        wrap.appendChild(dot);
+
+        wrap.addEventListener('touchstart', function(e) {
+          e.stopPropagation(); e.preventDefault();
+        }, { passive: false });
+        wrap.addEventListener('touchend', function(e) {
+          e.stopPropagation();
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({ type: 'expeditionPress', id: '${exp.id}' })
+          );
+        });
+        wrap.addEventListener('click', function(e) { e.stopPropagation(); });
+
+        new tt.Marker({ element: wrap, anchor: 'center' })
+          .setLngLat([${exp.landmark_lon}, ${exp.landmark_lat}])
+          .addTo(map);
+      })();
+    `).join('\n');
+
   const markersJS = landmarks
     .map((lm) => {
       const color =
         lm.tier === 'hidden' ? '#3D2B8E' : lm.tier === 'discovered' ? '#00C9B1' : '#F5A623';
-      const safeId = 'm' + String(lm.id).replace(/[^a-zA-Z0-9]/g, '_');
-      const safeName = (lm.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-      const safeCat = (lm.category || '').replace(/'/g, "\\'");
+      const glow =
+        lm.tier === 'hidden'
+          ? 'rgba(61,43,142,0.55)'
+          : lm.tier === 'discovered'
+          ? 'rgba(0,201,177,0.55)'
+          : 'rgba(245,166,35,0.55)';
       return `
         (function() {
-          var el = document.createElement('div');
-          el.style.cssText = 'width:14px;height:14px;border-radius:50%;background:${color};border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4);cursor:pointer;transition:transform 0.15s;';
-          el.onmouseenter = function(){ el.style.transform='scale(1.4)'; };
-          el.onmouseleave = function(){ el.style.transform='scale(1)'; };
-          el.addEventListener('click', function(e) {
+          // Wrapper — anchor point is its bottom centre
+          var wrap = document.createElement('div');
+          wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:transform 0.15s;';
+
+          // Orb — radial gradient gives a sphere highlight
+          var orb = document.createElement('div');
+          orb.style.cssText = [
+            'width:28px', 'height:28px', 'border-radius:50%',
+            'background:radial-gradient(circle at 35% 30%, rgba(255,255,255,0.7) 0%, ${color} 55%)',
+            'border:2.5px solid white',
+            'box-shadow:0 0 10px ${glow}, 0 3px 6px rgba(0,0,0,0.4)',
+          ].join(';');
+
+          // Stem
+          var stem = document.createElement('div');
+          stem.style.cssText = [
+            'width:3px', 'height:14px',
+            'background:linear-gradient(to bottom, ${color} 0%, rgba(0,0,0,0.1) 100%)',
+            'border-radius:0 0 2px 2px',
+          ].join(';');
+
+          // Ground shadow ellipse
+          var shadow = document.createElement('div');
+          shadow.style.cssText = [
+            'width:12px', 'height:5px', 'border-radius:50%',
+            'background:rgba(0,0,0,0.18)',
+            'margin-top:1px',
+          ].join(';');
+
+          wrap.appendChild(orb);
+          wrap.appendChild(stem);
+          wrap.appendChild(shadow);
+
+          wrap.onmouseenter = function() { wrap.style.transform = 'scale(1.25)'; };
+          wrap.onmouseleave = function() { wrap.style.transform = 'scale(1)'; };
+          // Use touchstart+preventDefault to block MapboxGL from receiving the
+          // touch as a pan gesture, then fire on touchend.
+          wrap.addEventListener('touchstart', function(e) {
             e.stopPropagation();
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'markerPress', id: '${lm.id}' }));
+            e.preventDefault();
+          }, { passive: false });
+          wrap.addEventListener('touchend', function(e) {
+            e.stopPropagation();
+            wrap.style.transform = 'scale(1.25)';
+            setTimeout(function() { wrap.style.transform = 'scale(1)'; }, 150);
+            window.ReactNativeWebView.postMessage(
+              JSON.stringify({ type: 'markerPress', id: '${lm.id}' })
+            );
           });
-          new tt.Marker({ element: el })
+          // Fallback for desktop/simulator
+          wrap.addEventListener('click', function(e) { e.stopPropagation(); });
+
+          new tt.Marker({ element: wrap, anchor: 'bottom' })
             .setLngLat([${lm.lon}, ${lm.lat}])
             .addTo(map);
         })();
@@ -44,6 +136,10 @@ function buildHTML(lat, lon, landmarks) {
   .mapboxgl-ctrl-logo,
   .mapboxgl-ctrl-attrib,
   .tt-copyright { display:none !important; }
+  @keyframes expPulse {
+    0%   { transform: scale(1);   opacity: 0.8; }
+    100% { transform: scale(2.4); opacity: 0; }
+  }
 </style>
 </head>
 <body>
@@ -53,12 +149,14 @@ function buildHTML(lat, lon, landmarks) {
     key: '${API_KEY}',
     container: 'map',
     center: [${lon}, ${lat}],
-    zoom: 15,
-    dragRotate: false,
-    pitchWithRotate: false,
+    zoom: 17,
+    pitch: 60,
+    bearing: 0,
+    dragRotate: true,
+    pitchWithRotate: true,
   });
 
-  // User location blue dot
+  // User location dot
   (function() {
     var el = document.createElement('div');
     el.style.cssText = [
@@ -70,6 +168,50 @@ function buildHTML(lat, lon, landmarks) {
   })();
 
   map.on('load', function() {
+    // --- 3D buildings ---
+    try {
+      var style = map.getStyle();
+
+      // Find the first symbol layer to insert buildings beneath labels
+      var firstSymbol;
+      for (var i = 0; i < style.layers.length; i++) {
+        if (style.layers[i].type === 'symbol') { firstSymbol = style.layers[i].id; break; }
+      }
+
+      // Find the vector tile source (works regardless of its key name)
+      var srcId = Object.keys(style.sources).find(function(k) {
+        return style.sources[k].type === 'vector';
+      });
+
+      if (srcId) {
+        // TomTom vector tiles use 'Building' as the source-layer name
+        // We also provide a constant default height so flat-roof buildings still extrude
+        map.addLayer({
+          id: '3d-buildings',
+          source: srcId,
+          'source-layer': 'Building',
+          type: 'fill-extrusion',
+          minzoom: 14,
+          paint: {
+            'fill-extrusion-color': [
+              'interpolate', ['linear'],
+              ['coalesce', ['get', 'height'], 0],
+              0,  '#e8dcc8',
+              20, '#d4c5a9',
+              60, '#c4b494',
+            ],
+            'fill-extrusion-height': ['coalesce', ['get', 'height'], 6],
+            'fill-extrusion-base':   ['coalesce', ['get', 'min_height'], 0],
+            'fill-extrusion-opacity': 0.9,
+          },
+        }, firstSymbol);
+      }
+    } catch(e) {}
+
+    // --- Expedition markers ---
+    ${expeditionsJS}
+
+    // --- Landmark markers ---
     ${markersJS}
   });
 
@@ -85,10 +227,17 @@ function buildHTML(lat, lon, landmarks) {
 }
 
 const TomTomMap = forwardRef(function TomTomMap(
-  { lat, lon, landmarks = [], style, onMarkerPress, onMapMove },
+  { lat, lon, landmarks = [], expeditions = [], style, onMarkerPress, onExpeditionPress, onMapMove },
   ref,
 ) {
   const webRef = useRef(null);
+  // Memoize so a parent re-render (e.g. theme change) never reloads the WebView
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const source = useMemo(
+    () => ({ html: buildHTML(lat, lon, landmarks, expeditions), baseUrl: 'https://api.tomtom.com' }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lat, lon, JSON.stringify(landmarks), JSON.stringify(expeditions)],
+  );
 
   useImperativeHandle(ref, () => ({
     flyTo: (newLat, newLon, zoom = 16) => {
@@ -102,6 +251,7 @@ const TomTomMap = forwardRef(function TomTomMap(
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'markerPress') onMarkerPress?.(data.id);
+      if (data.type === 'expeditionPress') onExpeditionPress?.(data.id);
       if (data.type === 'mapMove') onMapMove?.(data);
     } catch {}
   };
@@ -110,7 +260,7 @@ const TomTomMap = forwardRef(function TomTomMap(
     <WebView
       ref={webRef}
       style={[styles.map, style]}
-      source={{ html: buildHTML(lat, lon, landmarks), baseUrl: 'https://api.tomtom.com' }}
+      source={source}
       originWhitelist={['*']}
       javaScriptEnabled
       domStorageEnabled

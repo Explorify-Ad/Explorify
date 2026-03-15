@@ -15,7 +15,7 @@ import { X, Eye, Lock, Star } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { TIER_COLORS, CATEGORY_COLORS } from '../utils/theme';
 import { getCurrentLocation } from '../services/location';
-import { nearbySearch } from '../services/tomtom';
+import { fetchNearbyLandmarks } from '../services/supabase';
 
 const { height: H } = Dimensions.get('window');
 const RADII = [200, 500, 1000];
@@ -51,7 +51,7 @@ export default function NearbyScreen() {
         loc = await getCurrentLocation();
         setUserLocation(loc);
       }
-      const results = await nearbySearch(loc.latitude, loc.longitude, r, 20);
+      const results = await fetchNearbyLandmarks(loc.latitude, loc.longitude, r);
       setLandmarks(results);
     } catch (e) {
       setError(e.message);

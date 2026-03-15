@@ -40,12 +40,14 @@ export function TopHUD() {
   }, [currentXP]);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
+    <View style={[styles.container, { paddingTop: insets.top + 6 }]}>
       <View style={styles.row}>
         {/* Avatar + Level */}
         <View style={styles.avatarWrap}>
-          <View style={[styles.avatar, { borderColor: theme.primary }]}>
-            <Text style={[styles.avatarText, { color: theme.primary }]}>{avatar}</Text>
+          <View style={[styles.avatarRing, { borderColor: theme.primary }]}>
+            <View style={styles.avatar}>
+              <Text style={[styles.avatarText, { color: theme.primary }]}>{avatar}</Text>
+            </View>
           </View>
           <View style={styles.levelWrap}>
             <LevelBadge level={level} />
@@ -86,31 +88,38 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    paddingBottom: 12,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    paddingBottom: 10,
     paddingHorizontal: 16,
     zIndex: 100,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(0,0,0,0.07)',
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatarWrap: { position: 'relative' },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  avatarWrap: { position: 'relative', width: 44, height: 44 },
+  avatarRing: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: 'white',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { fontWeight: '700', fontSize: 16 },
-  levelWrap: { position: 'absolute', bottom: -4, right: -6 },
+  avatarText: { fontWeight: '700', fontSize: 15 },
+  levelWrap: { position: 'absolute', bottom: -7, right: -10 },
   xpWrap: { flex: 1 },
   xpTrack: {
     height: 6,

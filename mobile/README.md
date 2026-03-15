@@ -41,7 +41,7 @@ npx expo start
 
 # Scan the QR code with Expo Go on your device
 # For cross-network access (different WiFi):
-npx expo start --tunnel
+npx expo start --tunnel --clear
 ```
 
 > **Important:** Use the **Expo Go** app to scan the QR code, not the native iOS camera app. The native camera cannot open `exp://` URLs.

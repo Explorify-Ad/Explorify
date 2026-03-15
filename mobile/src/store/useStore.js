@@ -74,7 +74,6 @@ const useStore = create((set, get) => ({
   },
 
   completeOnboarding: async (interests, userName = 'Explorer') => {
-    // Pick first matching quest for their top interest
     const catMap = {
       architecture: 'q_arch', food: 'q_food', history: 'q_history',
       art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
@@ -82,15 +81,26 @@ const useStore = create((set, get) => ({
     const defaultQuest = catMap[interests[0]] || 'q_arch';
     set({ hasOnboarded: true, interests, userName, activeQuestId: defaultQuest });
     await get()._persist();
+    // Save profile to Supabase if logged in
+    const { authUser } = get();
+    if (authUser?.id) {
+      const { saveUserProfile } = await import('../services/supabase');
+      await saveUserProfile(authUser.id, { displayName: userName, interests });
+    }
   },
 
   checkIn: async (landmark) => {
-    const { collection } = get();
+    const { collection, authUser } = get();
     if (collection.find((c) => String(c.id) === String(landmark.id))) return 0;
     const xp = TIER_XP[landmark.tier] || 150;
     const entry = { ...landmark, checkedInAt: new Date().toISOString(), xpEarned: xp };
     set((state) => ({ collection: [...state.collection, entry] }));
     await get()._persist();
+    // Sync to Supabase if logged in
+    if (authUser?.id) {
+      const { saveCheckIn } = await import('../services/supabase');
+      await saveCheckIn(authUser.id, landmark, xp);
+    }
     return xp;
   },
 
@@ -205,6 +215,34 @@ const useStore = create((set, get) => ({
       }
     } catch {
       set({ hydrated: true });
+    }
+  },
+
+  // Called after login to pull server-side collection into local state
+  syncFromSupabase: async () => {
+    const { authUser } = get();
+    if (!authUser?.id) return;
+    try {
+      const { fetchCollections, fetchUserProfile } = await import('../services/supabase');
+      const [serverCollection, profile] = await Promise.all([
+        fetchCollections(authUser.id),
+        fetchUserProfile(authUser.id),
+      ]);
+      const updates = {};
+      if (serverCollection?.length) updates.collection = serverCollection;
+      if (profile) {
+        if (profile.display_name) updates.userName = profile.display_name;
+        if (profile.interests?.length) {
+          updates.interests = profile.interests;
+          updates.hasOnboarded = true;
+        }
+      }
+      if (Object.keys(updates).length) {
+        set(updates);
+        await get()._persist();
+      }
+    } catch (e) {
+      console.warn('syncFromSupabase error:', e.message);
     }
   },
 }));

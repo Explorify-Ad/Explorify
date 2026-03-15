@@ -14,6 +14,9 @@ import CollectionScreen from '../screens/CollectionScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import LandmarkDetailScreen from '../screens/LandmarkDetailScreen';
 import NearbyScreen from '../screens/NearbyScreen';
+import CreateExpeditionScreen from '../screens/CreateExpeditionScreen';
+import ExpeditionPreviewScreen from '../screens/ExpeditionPreviewScreen';
+import ExpeditionChatScreen from '../screens/ExpeditionChatScreen';
 import { useTheme } from '../context/ThemeContext';
 import useStore from '../store/useStore';
 import supabase from '../services/supabase';
@@ -59,11 +62,12 @@ function TabNavigator() {
 
 export default function AppNavigator() {
   const { theme } = useTheme();
-  const hydrated        = useStore((s) => s.hydrated);
-  const hasOnboarded    = useStore((s) => s.hasOnboarded);
-  const isAuthenticated = useStore((s) => s.isAuthenticated);
-  const hydrate         = useStore((s) => s.hydrate);
-  const setAuthUser     = useStore((s) => s.setAuthUser);
+  const hydrated           = useStore((s) => s.hydrated);
+  const hasOnboarded       = useStore((s) => s.hasOnboarded);
+  const isAuthenticated    = useStore((s) => s.isAuthenticated);
+  const hydrate            = useStore((s) => s.hydrate);
+  const setAuthUser        = useStore((s) => s.setAuthUser);
+  const syncFromSupabase   = useStore((s) => s.syncFromSupabase);
 
   useEffect(() => {
     hydrate();
@@ -81,15 +85,16 @@ export default function AppNavigator() {
 
     // Keep auth state in sync
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthUser(
-        session?.user
-          ? {
-              id: session.user.id,
-              email: session.user.email,
-              name: session.user.user_metadata?.name || session.user.email.split('@')[0],
-            }
-          : null,
-      );
+      if (session?.user) {
+        setAuthUser({
+          id: session.user.id,
+          email: session.user.email,
+          name: session.user.user_metadata?.name || session.user.email.split('@')[0],
+        });
+        syncFromSupabase();
+      } else {
+        setAuthUser(null);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -132,6 +137,20 @@ export default function AppNavigator() {
           name="Nearby"
           component={NearbyScreen}
           options={{ presentation: 'modal' }}
+        />
+        <Stack.Screen
+          name="CreateExpedition"
+          component={CreateExpeditionScreen}
+          options={{ presentation: 'modal' }}
+        />
+        <Stack.Screen
+          name="ExpeditionPreview"
+          component={ExpeditionPreviewScreen}
+          options={{ presentation: 'modal' }}
+        />
+        <Stack.Screen
+          name="ExpeditionChat"
+          component={ExpeditionChatScreen}
         />
       </Stack.Navigator>
     </NavigationContainer>

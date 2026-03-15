@@ -31,7 +31,7 @@ export function CategoryPill({ category, color }) {
 
 export function LevelBadge({ level }) {
   return (
-    <View style={[styles.badge, { backgroundColor: TIER_COLORS.public }]}>
+    <View style={[styles.levelBadge]}>
       <Text style={styles.badgeText}>Lv.{level}</Text>
     </View>
   );
@@ -42,6 +42,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: 100,
+  },
+  levelBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 100,
+    backgroundColor: TIER_COLORS.public,
+    borderWidth: 2,
+    borderColor: 'white',
   },
   badgeText: {
     fontSize: 11,

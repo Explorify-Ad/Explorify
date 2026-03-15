@@ -42,62 +42,63 @@ export default function QuestsScreen() {
     return () => setMode('exploration');
   }, [activeQuest.id]);
 
-  const TOP_OFFSET = insets.top + 80;
+  const HUD_HEIGHT = insets.top + 62;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.surface }]}>
-      <TopHUD />
-
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={[styles.scroll, { paddingTop: TOP_OFFSET, paddingBottom: insets.bottom + 96 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Active Quest Card */}
+    <View style={styles.container}>
+      {/* Purple header band — active quest lives here */}
+      <View style={[styles.headerBand, { paddingTop: HUD_HEIGHT }]}>
         <Animated.View style={[styles.activeCard, { opacity: cardOpacity, transform: [{ translateY: cardY }] }]}>
-          <View style={[styles.activeCardInner, { backgroundColor: '#7C3AED' }]}>
-            <View style={styles.activeQuestCat}>
-              <Text>{activeQuest.emoji}</Text>
-              <Text style={styles.activeQuestCatText}>{activeQuest.category}</Text>
-            </View>
-            <Text style={styles.activeQuestTitle}>{activeQuest.title}</Text>
+          <View style={styles.activeQuestCat}>
+            <Text>{activeQuest.emoji}</Text>
+            <Text style={styles.activeQuestCatText}>{activeQuest.category}</Text>
+          </View>
+          <Text style={styles.activeQuestTitle}>{activeQuest.title}</Text>
 
-            <View style={styles.progressTrack}>
-              <Animated.View
-                style={[
-                  styles.progressFill,
-                  { width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) },
-                ]}
-              />
-            </View>
-            <Text style={styles.progressLabel}>
-              {activeQuest.progress} of {activeQuest.target} landmarks found
-            </Text>
+          <View style={styles.progressTrack}>
+            <Animated.View
+              style={[
+                styles.progressFill,
+                { width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) },
+              ]}
+            />
+          </View>
+          <Text style={styles.progressLabel}>
+            {activeQuest.progress} of {activeQuest.target} landmarks found
+          </Text>
 
-            <View style={styles.thumbRow}>
-              {Array.from({ length: activeQuest.target }).map((_, i) => (
-                <View
-                  key={i}
-                  style={[styles.thumb, {
-                    backgroundColor: i < activeQuest.progress ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
-                  }]}
-                >
-                  <Text style={styles.thumbText}>{i < activeQuest.progress ? '✓' : '?'}</Text>
-                </View>
-              ))}
-            </View>
-
-            <View style={styles.metaRow}>
-              <View style={styles.xpPill}>
-                <Text style={styles.xpPillText}>{activeQuest.xp} XP</Text>
+          <View style={styles.thumbRow}>
+            {Array.from({ length: activeQuest.target }).map((_, i) => (
+              <View
+                key={i}
+                style={[styles.thumb, {
+                  backgroundColor: i < activeQuest.progress ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
+                }]}
+              >
+                <Text style={styles.thumbText}>{i < activeQuest.progress ? '✓' : '?'}</Text>
               </View>
-              <View style={styles.timePill}>
-                <Clock size={12} color="white" strokeWidth={2} />
-                <Text style={styles.timePillText}>~{activeQuest.target * 20}min</Text>
-              </View>
+            ))}
+          </View>
+
+          <View style={styles.metaRow}>
+            <View style={styles.xpPill}>
+              <Text style={styles.xpPillText}>{activeQuest.xp} XP</Text>
+            </View>
+            <View style={styles.timePill}>
+              <Clock size={12} color="white" strokeWidth={2} />
+              <Text style={styles.timePillText}>~{activeQuest.target * 20}min</Text>
             </View>
           </View>
         </Animated.View>
+      </View>
+
+      <TopHUD />
+
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 96 }]}
+        showsVerticalScrollIndicator={false}
+      >
 
         <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Built for you</Text>
         <Text style={[styles.sectionSub, { color: theme.textSecondary }]}>
@@ -150,10 +151,20 @@ export default function QuestsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  scroll: { paddingHorizontal: 16 },
-  activeCard: { borderRadius: 28, overflow: 'hidden', marginBottom: 24 },
-  activeCardInner: { padding: 20 },
+  container: { flex: 1, backgroundColor: '#7C3AED' },
+  headerBand: {
+    paddingHorizontal: 20,
+    paddingBottom: 28,
+  },
+  scrollView: {
+    flex: 1,
+    backgroundColor: '#FDFAF5',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
+  },
+  scroll: { paddingHorizontal: 16, paddingTop: 20 },
+  activeCard: {},
   activeQuestCat: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
   activeQuestCatText: { color: 'rgba(255,255,255,0.8)', fontSize: 13 },
   activeQuestTitle: { color: 'white', fontSize: 18, fontWeight: '700', marginBottom: 16 },
