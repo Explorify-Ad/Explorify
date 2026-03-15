@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Map, Target, Briefcase, User } from 'lucide-react-native';
 
+import LoginScreen from '../screens/LoginScreen';
+import SignupScreen from '../screens/SignupScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import MapScreen from '../screens/MapScreen';
 import QuestsScreen from '../screens/QuestsScreen';
@@ -12,13 +15,14 @@ import ProfileScreen from '../screens/ProfileScreen';
 import LandmarkDetailScreen from '../screens/LandmarkDetailScreen';
 import NearbyScreen from '../screens/NearbyScreen';
 import { useTheme } from '../context/ThemeContext';
+import useStore from '../store/useStore';
+import supabase from '../services/supabase';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function TabNavigator() {
   const { theme } = useTheme();
-
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -54,10 +58,70 @@ function TabNavigator() {
 }
 
 export default function AppNavigator() {
+  const { theme } = useTheme();
+  const hydrated        = useStore((s) => s.hydrated);
+  const hasOnboarded    = useStore((s) => s.hasOnboarded);
+  const isAuthenticated = useStore((s) => s.isAuthenticated);
+  const hydrate         = useStore((s) => s.hydrate);
+  const setAuthUser     = useStore((s) => s.setAuthUser);
+
+  useEffect(() => {
+    hydrate();
+
+    // Restore existing Supabase session on app start
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setAuthUser({
+          id: session.user.id,
+          email: session.user.email,
+          name: session.user.user_metadata?.name || session.user.email.split('@')[0],
+        });
+      }
+    });
+
+    // Keep auth state in sync
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(
+        session?.user
+          ? {
+              id: session.user.id,
+              email: session.user.email,
+              name: session.user.user_metadata?.name || session.user.email.split('@')[0],
+            }
+          : null,
+      );
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (!hydrated) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFDF8' }}>
+        <ActivityIndicator size="large" color={theme.primary} />
+      </View>
+    );
+  }
+
+  // Determine the initial/first screen based on auth + onboarding state
+  const initialRoute = !isAuthenticated
+    ? 'Login'
+    : !hasOnboarded
+    ? 'Onboarding'
+    : 'Main';
+
   return (
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator
+        initialRouteName={initialRoute}
+        screenOptions={{ headerShown: false }}
+      >
+        {/* Auth screens — always present so navigation between them works */}
+        <Stack.Screen name="Login"      component={LoginScreen} />
+        <Stack.Screen name="Signup"     component={SignupScreen} />
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+
+        {/* App screens */}
         <Stack.Screen name="Main" component={TabNavigator} />
         <Stack.Screen
           name="LandmarkDetail"

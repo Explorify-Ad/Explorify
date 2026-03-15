@@ -16,6 +16,7 @@ import { PrimaryAction } from '../components/explorify/Buttons';
 import { useTheme } from '../context/ThemeContext';
 import { haversineDistance } from '../services/tomtom';
 import { CATEGORY_COLORS } from '../utils/theme';
+import useStore from '../store/useStore';
 
 const CHECK_IN_RANGE = 100; // metres
 
@@ -29,9 +30,15 @@ export default function LandmarkDetailScreen() {
   // or just an id (legacy). Fall back gracefully.
   const landmark = params?.landmark || null;
 
+  const checkIn = useStore((s) => s.checkIn);
+
   const [distance, setDistance] = useState(null);
   const [isInRange, setIsInRange] = useState(false);
   const [checkedIn, setCheckedIn] = useState(false);
+  const [xpEarned, setXpEarned] = useState(() => {
+    const { public: pub, discovered, hidden } = { public: 150, discovered: 320, hidden: 600 };
+    return ({ public: pub, discovered, hidden })[params?.landmark?.tier] || 150;
+  });
 
   const sheetY = useRef(new Animated.Value(600)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -79,7 +86,9 @@ export default function LandmarkDetailScreen() {
     };
   }, []);
 
-  const handleCheckIn = () => {
+  const handleCheckIn = async () => {
+    const earned = await checkIn(landmark);
+    setXpEarned(earned || 150);
     setCheckedIn(true);
     Animated.spring(celebrateScale, { toValue: 1, damping: 14, stiffness: 200, useNativeDriver: true }).start();
     setTimeout(() => navigation.goBack(), 2200);
@@ -174,15 +183,17 @@ export default function LandmarkDetailScreen() {
           </View>
 
           <View style={styles.rewardRow}>
-            <XPChip amount={320} />
-            <View style={styles.firstBadge}>
-              <Text style={styles.firstBadgeText}>First! 🎉</Text>
-            </View>
+            <XPChip amount={xpEarned} />
+            {tier === 'hidden' && (
+              <View style={styles.firstBadge}>
+                <Text style={styles.firstBadgeText}>Hidden! 🔍</Text>
+              </View>
+            )}
           </View>
 
           {isInRange && !checkedIn && (
             <PrimaryAction onPress={handleCheckIn} style={{ width: '100%', marginTop: 8 }}>
-              Check In + 320 XP
+              Check In + {xpEarned} XP
             </PrimaryAction>
           )}
 
@@ -193,7 +204,7 @@ export default function LandmarkDetailScreen() {
                 Landmark Collected!
               </Text>
               <Text style={[styles.celebrationSub, { color: theme.textSecondary }]}>
-                +320 XP earned
+                +{xpEarned} XP earned
               </Text>
             </Animated.View>
           )}

@@ -3,16 +3,30 @@ import { View, Text, Animated, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LevelBadge } from './Badges';
 import { useTheme } from '../../context/ThemeContext';
+import useStore from '../../store/useStore';
 
-export function TopHUD({ level = 12, currentXP = 2340, maxXP = 3000, streak = 7, avatar = 'E' }) {
+const XP_PER_LEVEL = 500;
+
+export function TopHUD() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const xpAnim = useRef(new Animated.Value(0)).current;
+
+  const getLevel    = useStore((s) => s.getLevel);
+  const getCurrentXP = useStore((s) => s.getCurrentXP);
+  const getStreak   = useStore((s) => s.getStreak);
+  const userName    = useStore((s) => s.userName);
+
+  const level     = getLevel();
+  const currentXP = getCurrentXP();
+  const streak    = getStreak();
+  const avatar    = (userName || 'E')[0].toUpperCase();
+
+  const xpAnim    = useRef(new Animated.Value(0)).current;
   const flameScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.timing(xpAnim, {
-      toValue: (currentXP / maxXP) * 100,
+      toValue: (currentXP / XP_PER_LEVEL) * 100,
       duration: 600,
       useNativeDriver: false,
     }).start();
@@ -20,10 +34,10 @@ export function TopHUD({ level = 12, currentXP = 2340, maxXP = 3000, streak = 7,
     Animated.loop(
       Animated.sequence([
         Animated.timing(flameScale, { toValue: 1.15, duration: 700, useNativeDriver: true }),
-        Animated.timing(flameScale, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(flameScale, { toValue: 1,    duration: 700, useNativeDriver: true }),
       ])
     ).start();
-  }, []);
+  }, [currentXP]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
@@ -52,7 +66,7 @@ export function TopHUD({ level = 12, currentXP = 2340, maxXP = 3000, streak = 7,
             />
           </View>
           <Text style={[styles.xpLabel, { color: theme.textSecondary }]}>
-            {currentXP.toLocaleString()} / {maxXP.toLocaleString()} XP
+            {currentXP} / {XP_PER_LEVEL} XP
           </Text>
         </View>
 

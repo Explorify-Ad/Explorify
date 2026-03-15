@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { PrimaryAction } from '../components/explorify/Buttons';
+import useStore from '../store/useStore';
 
 const CATEGORIES = [
   { id: 'architecture', label: 'Architecture', icon: '🏛️', bg: '#64748b' },
@@ -18,6 +19,7 @@ export default function OnboardingScreen() {
   const [selected, setSelected] = useState(new Set());
   const navigation = useNavigation();
   const { theme } = useTheme();
+  const completeOnboarding = useStore((s) => s.completeOnboarding);
 
   const toggle = (id) => {
     const next = new Set(selected);
@@ -68,7 +70,11 @@ export default function OnboardingScreen() {
           </View>
 
           <PrimaryAction
-            onPress={() => selected.size > 0 && navigation.navigate('Main')}
+            onPress={() => {
+              if (selected.size === 0) return;
+              completeOnboarding(Array.from(selected));
+              navigation.navigate('Main');
+            }}
             disabled={selected.size === 0}
             style={{ width: '100%' }}
           >

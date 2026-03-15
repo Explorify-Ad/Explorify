@@ -15,6 +15,7 @@ import TomTomMap from '../components/explorify/TomTomMap';
 import { useTheme } from '../context/ThemeContext';
 import { getCurrentLocation } from '../services/location';
 import { nearbySearch } from '../services/tomtom';
+import useStore from '../store/useStore';
 
 const { height: H } = Dimensions.get('window');
 
@@ -22,6 +23,8 @@ export default function MapScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { theme, setMode } = useTheme();
+  const getActiveQuest = useStore((s) => s.getActiveQuest);
+  const activeQuest = getActiveQuest();
   const [showSheet, setShowSheet] = useState(false);
   const [landmarks, setLandmarks] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
@@ -106,7 +109,7 @@ export default function MapScreen() {
       )}
 
       {/* Top HUD — sits above map */}
-      <TopHUD level={12} currentXP={2340} maxXP={3000} streak={7} />
+      <TopHUD />
 
       {/* Active Quest Strip */}
       <Animated.View
@@ -122,12 +125,14 @@ export default function MapScreen() {
       >
         <View style={{ flex: 1 }}>
           <Text style={[styles.questTitle, { color: theme.textPrimary }]} numberOfLines={1}>
-            Downtown Heritage Trail
+            {activeQuest.title}
           </Text>
-          <Text style={[styles.questSub, { color: theme.textSecondary }]}>In progress</Text>
+          <Text style={[styles.questSub, { color: theme.textSecondary }]}>
+            {activeQuest.progress >= activeQuest.target ? 'Complete! 🎉' : 'In progress'}
+          </Text>
         </View>
         <View style={[styles.questBadge, { backgroundColor: theme.primary + '20' }]}>
-          <Text style={[styles.questBadgeText, { color: theme.primary }]}>2 / 3</Text>
+          <Text style={[styles.questBadgeText, { color: theme.primary }]}>{activeQuest.progress} / {activeQuest.target}</Text>
         </View>
       </Animated.View>
 
