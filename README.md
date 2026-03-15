@@ -19,13 +19,15 @@
 
 | Layer | Technology |
 |-------|------------|
-| **Frontend** | React Native (Expo) |
+| **Mobile** | React Native 0.81.5 + Expo SDK 54 |
 | **Backend** | Node.js + Express.js |
 | **Database** | PostgreSQL (Supabase) |
 | **Authentication** | Supabase Auth |
-| **Maps** | React Native Maps (Google Maps / Apple Maps) |
+| **Maps** | TomTom Maps Web SDK v6 (via WebView) |
+| **Location Search** | TomTom Search API v2 |
+| **GPS** | expo-location |
 | **Weather API** | OpenWeatherMap |
-| **State Management** | Zustand |
+| **State Management** | React Context (theme) |
 | **Hosting** | Render.com (backend), Supabase (database) |
 
 ## 🚀 Quick Start
@@ -44,27 +46,34 @@
 git clone https://github.com/Explorify-Ad/Explorify.git
 cd Explorify
 
-# Install all dependencies
-npm run install:all
+# Install all dependencies (npm workspaces — run from root)
+npm install
 
 # Copy environment variables
-cp .env.example .env
 cp mobile/.env.example mobile/.env
 cp backend/.env.example backend/.env
+```
 
-# Run setup script
-npm run setup
+Edit `mobile/.env` and add your API keys:
+
+```env
+EXPO_PUBLIC_TOMTOM_API_KEY=your_tomtom_api_key   # developer.tomtom.com (free tier)
+EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 ```
 
 ### Running the App
 
 ```bash
-# Start the mobile app
+# Start the mobile app (Expo dev server)
 npm run mobile
+# Then scan the QR code with Expo Go (SDK 54) on your device
 
 # Start the backend server
 npm run backend
 ```
+
+> **Note:** Install [Expo Go](https://expo.dev/client) on your device. Use **Expo Go** to scan the QR — not the native iOS camera app. For cross-network access use `npx expo start --tunnel` from `mobile/`.
 
 ## 📁 Project Structure
 
