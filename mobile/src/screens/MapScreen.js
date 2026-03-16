@@ -38,12 +38,19 @@ export default function MapScreen() {
   const questY = useRef(new Animated.Value(40)).current;
   const questOpacity = useRef(new Animated.Value(0)).current;
 
-  const loadNearby = useCallback(async () => {
-    try {
-      setLoading(true);
-      const loc = await getCurrentLocation();
-      setUserLocation(loc);
+  // Fallback to TCD Dublin if location is unavailable
+  const FALLBACK_LOC = { latitude: 53.3438, longitude: -6.2546 };
 
+  const loadNearby = useCallback(async () => {
+    setLoading(true);
+    let loc = FALLBACK_LOC;
+    try {
+      loc = await getCurrentLocation();
+    } catch (e) {
+      console.warn('Location unavailable, using fallback:', e?.message);
+    }
+    setUserLocation(loc);
+    try {
       const [results, exps] = await Promise.all([
         fetchAllLandmarks(loc.latitude, loc.longitude),
         fetchActiveExpeditions(loc.latitude, loc.longitude),
@@ -51,7 +58,7 @@ export default function MapScreen() {
       setLandmarks(results || []);
       setExpeditions(exps || []);
     } catch (e) {
-      console.warn('MapScreen load error:', e?.message || e);
+      console.warn('MapScreen data load error:', e?.message || e);
     } finally {
       setLoading(false);
     }
