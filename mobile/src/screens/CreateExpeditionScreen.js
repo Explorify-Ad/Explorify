@@ -1,17 +1,16 @@
 import React, { useState } from 'react';
 import {
-  View, Text, Pressable, ScrollView, TextInput, Switch,
+  View, Text, Pressable, ScrollView, TextInput, Switch, Modal, FlatList,
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { X, MapPin, Plus, Minus, Building2, Utensils, Trees, Landmark, Palette, Music } from 'lucide-react-native';
+import { X, MapPin, ChevronDown, Plus, Minus, Building2, Utensils, Trees, Landmark, Palette, Music } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { createExpedition } from '../services/supabase';
 import useStore from '../store/useStore';
 
 const CORAL = '#FF6B6B';
-const TEAL  = '#0D9488';
 
 const CATEGORIES = [
   { id: 'architecture', label: 'Architecture', Icon: Building2, bg: '#475569' },
@@ -26,10 +25,12 @@ const DURATIONS = ['30min', '1hr', '2hr', 'Half Day', 'Custom'];
 
 export default function CreateExpeditionScreen() {
   const navigation = useNavigation();
+  const route = useRoute();
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
 
   const authUser = useStore((s) => s.authUser);
+  const landmarks = route.params?.landmarks ?? [];
 
   const [title, setTitle]               = useState('');
   const [selected, setSelected]         = useState(new Set());
@@ -37,6 +38,8 @@ export default function CreateExpeditionScreen() {
   const [duration, setDuration]         = useState('2hr');
   const [dnaOnly, setDnaOnly]           = useState(true);
   const [launching, setLaunching]       = useState(false);
+  const [meetingPoint, setMeetingPoint] = useState(null);
+  const [pickerOpen, setPickerOpen]     = useState(false);
 
   const toggle = (id) => {
     const next = new Set(selected);
@@ -56,6 +59,10 @@ export default function CreateExpeditionScreen() {
         groupSize,
         duration,
         dnaOnly,
+        landmarkId:   meetingPoint?.id   ?? null,
+        landmarkName: meetingPoint?.name ?? null,
+        landmarkLat:  meetingPoint?.lat  ?? null,
+        landmarkLon:  meetingPoint?.lon  ?? null,
       });
       navigation.replace('ExpeditionChat', {
         expedition: {
@@ -63,7 +70,7 @@ export default function CreateExpeditionScreen() {
           title: exp.title,
           memberCount: 1,
           categories: exp.categories,
-          landmark: null,
+          landmark: meetingPoint ? { name: meetingPoint.name } : null,
         },
       });
     } catch (e) {
@@ -121,12 +128,55 @@ export default function CreateExpeditionScreen() {
           })}
         </View>
 
-        {/* Meeting point placeholder */}
+        {/* Meeting point picker */}
         <Text style={[styles.label, { color: theme.textPrimary }]}>Meeting Point</Text>
-        <View style={styles.mapThumb}>
-          <MapPin size={32} color={CORAL} />
-          <Text style={[styles.mapHint, { color: TEAL }]}>Set on map</Text>
-        </View>
+        <Pressable
+          onPress={() => setPickerOpen(true)}
+          style={[styles.pickerBtn, { borderColor: meetingPoint ? CORAL : 'rgba(0,0,0,0.12)' }]}
+        >
+          <MapPin size={18} color={meetingPoint ? CORAL : theme.textSecondary} strokeWidth={2} />
+          <Text style={[styles.pickerText, { color: meetingPoint ? theme.textPrimary : theme.textSecondary, flex: 1 }]}
+            numberOfLines={1}>
+            {meetingPoint ? meetingPoint.name : 'Select a nearby landmark…'}
+          </Text>
+          <ChevronDown size={16} color={theme.textSecondary} strokeWidth={2} />
+        </Pressable>
+
+        <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
+          <Pressable style={styles.modalOverlay} onPress={() => setPickerOpen(false)} />
+          <View style={[styles.pickerSheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.pickerHandle} />
+            <Text style={[styles.pickerTitle, { color: theme.textPrimary }]}>Choose a meeting spot</Text>
+            {landmarks.length === 0 ? (
+              <Text style={[styles.pickerEmpty, { color: theme.textSecondary }]}>No landmarks nearby</Text>
+            ) : (
+              <FlatList
+                data={landmarks}
+                keyExtractor={(item) => String(item.id)}
+                renderItem={({ item }) => (
+                  <Pressable
+                    style={[styles.pickerItem, meetingPoint?.id === item.id && { backgroundColor: `${CORAL}12` }]}
+                    onPress={() => { setMeetingPoint(item); setPickerOpen(false); }}
+                  >
+                    <View style={[styles.pickerDot, { backgroundColor:
+                      item.tier === 'hidden' ? '#3D2B8E' : item.tier === 'discovered' ? '#00C9B1' : '#F5A623' }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.pickerItemName, { color: theme.textPrimary }]}>{item.name}</Text>
+                      {item.tier && (
+                        <Text style={[styles.pickerItemSub, { color: theme.textSecondary }]}>
+                          {item.tier.charAt(0).toUpperCase() + item.tier.slice(1)}
+                        </Text>
+                      )}
+                    </View>
+                    {meetingPoint?.id === item.id && (
+                      <Text style={{ color: CORAL, fontWeight: '700', fontSize: 18 }}>✓</Text>
+                    )}
+                  </Pressable>
+                )}
+              />
+            )}
+          </View>
+        </Modal>
 
         {/* Group size */}
         <Text style={[styles.label, { color: theme.textPrimary }]}>Group Size</Text>
@@ -235,12 +285,32 @@ const styles = StyleSheet.create({
   },
   catLabel: { color: 'white', fontSize: 13, fontWeight: '500' },
 
-  mapThumb: {
-    height: 110, borderRadius: 16, backgroundColor: '#F5F0E8',
-    alignItems: 'center', justifyContent: 'center', marginBottom: 24, gap: 8,
-    borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)',
+  pickerBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: 'white', borderRadius: 14, borderWidth: 1.5,
+    paddingHorizontal: 14, paddingVertical: 14, marginBottom: 24,
   },
-  mapHint: { fontSize: 13, fontWeight: '500' },
+  pickerText: { fontSize: 14 },
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  pickerSheet: {
+    backgroundColor: 'white', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 16, paddingTop: 12, maxHeight: '60%',
+  },
+  pickerHandle: {
+    width: 40, height: 4, backgroundColor: 'rgba(0,0,0,0.1)',
+    borderRadius: 2, alignSelf: 'center', marginBottom: 14,
+  },
+  pickerTitle: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  pickerEmpty: { fontSize: 14, textAlign: 'center', paddingVertical: 24 },
+  pickerItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 12, paddingHorizontal: 8, borderRadius: 12,
+  },
+  pickerDot: { width: 12, height: 12, borderRadius: 6 },
+  pickerItemName: { fontSize: 14, fontWeight: '600' },
+  pickerItemSub: { fontSize: 12, marginTop: 1 },
 
   stepperRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 28, marginBottom: 24 },

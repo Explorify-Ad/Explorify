@@ -301,7 +301,7 @@ export default function MapScreen() {
 
             <Pressable
               style={[styles.sheetOption, { backgroundColor: '#FFF5F5' }]}
-              onPress={() => { closeSheet(); navigation.navigate('CreateExpedition'); }}
+              onPress={() => { closeSheet(); navigation.navigate('CreateExpedition', { userLocation, landmarks }); }}
             >
               <View style={styles.sheetOptIcon}>
                 <Text style={{ fontSize: 24 }}>🗺️</Text>

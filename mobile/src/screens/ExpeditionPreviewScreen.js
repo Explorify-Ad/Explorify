@@ -1,10 +1,12 @@
-import React, { useRef, useEffect } from 'react';
-import { View, Text, Pressable, Animated, StyleSheet } from 'react-native';
+import React, { useRef, useEffect, useState } from 'react';
+import { View, Text, Pressable, Animated, StyleSheet, ActivityIndicator } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, MapPin, Clock } from 'lucide-react-native';
 import { LevelBadge, CategoryPill } from '../components/explorify/Badges';
 import { useTheme } from '../context/ThemeContext';
+import { joinExpedition } from '../services/supabase';
+import useStore from '../store/useStore';
 
 const CORAL = '#FF6B6B';
 const TEAL  = '#0D9488';
@@ -26,6 +28,21 @@ export default function ExpeditionPreviewScreen() {
     spotsLeft: 2,
     meetingPoint: 'Central Plaza',
     startsIn: '14 min',
+  };
+
+  const authUser = useStore((s) => s.authUser);
+  const [joining, setJoining] = useState(false);
+
+  const handleJoin = async () => {
+    if (joining) return;
+    setJoining(true);
+    try {
+      await joinExpedition(expedition.id, authUser.id, authUser.name ?? 'Explorer');
+      navigation.navigate('ExpeditionChat', { expedition });
+    } catch (e) {
+      console.warn('joinExpedition error:', e.message);
+      setJoining(false);
+    }
   };
 
   const sheetY = useRef(new Animated.Value(400)).current;
@@ -122,10 +139,13 @@ export default function ExpeditionPreviewScreen() {
         {/* Actions */}
         <View style={styles.actionRow}>
           <Pressable
-            style={styles.joinBtn}
-            onPress={() => navigation.navigate('ExpeditionChat', { expedition })}
+            style={[styles.joinBtn, { opacity: joining ? 0.6 : 1 }]}
+            onPress={handleJoin}
+            disabled={joining}
           >
-            <Text style={styles.joinText}>Join Expedition</Text>
+            {joining
+              ? <ActivityIndicator color="white" />
+              : <Text style={styles.joinText}>Join Expedition</Text>}
           </Pressable>
           <Pressable
             style={styles.peekBtn}
