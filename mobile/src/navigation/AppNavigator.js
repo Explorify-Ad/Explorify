@@ -7,6 +7,7 @@ import RouteBuilderScreen from '../screens/RouteBuilderScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import LandmarkDetailScreen from '../screens/LandmarkDetailScreen';
 import CollectionScreen from '../screens/CollectionScreen';
+import GroupScreen from '../screens/GroupScreen';
 
 const Stack = createStackNavigator();
 
@@ -57,6 +58,11 @@ export default function AppNavigator() {
           name="Collection"
           component={CollectionScreen}
           options={{ title: 'My Collection' }}
+        />
+        <Stack.Screen
+          name="Group"
+          component={GroupScreen}
+          options={{ title: 'Group Travel' }}
         />
       </Stack.Navigator>
     </NavigationContainer>
