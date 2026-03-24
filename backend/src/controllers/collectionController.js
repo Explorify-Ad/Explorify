@@ -44,7 +44,27 @@ const addToCollection = async (req, res, next) => {
       [userId, landmark_id, dwell_time_min, rating, notes]
     );
 
-    // Update user points
+    // 2. Recalibrate dwell multipliers (Priority 8)
+    if (dwell_time_min) {
+      const userResult = await query('SELECT preferences FROM users WHERE id = $1', [userId]);
+      const preferences = userResult.rows[0].preferences || {};
+      const landmarkResult = await query('SELECT category, avg_visit_duration_min FROM landmarks WHERE id = $1', [landmark_id]);
+      const { category, avg_visit_duration_min } = landmarkResult.rows[0];
+
+      if (avg_visit_duration_min > 0) {
+        const actualRatio = dwell_time_min / avg_visit_duration_min;
+        const multipliers = preferences.category_dwell_multipliers || {};
+        const oldMultiplier = multipliers[category] || 1.0;
+        
+        // Moving average: 80% old, 20% new
+        multipliers[category] = (oldMultiplier * 0.8) + (actualRatio * 0.2);
+        
+        preferences.category_dwell_multipliers = multipliers;
+        await query('UPDATE users SET preferences = $1 WHERE id = $2', [JSON.stringify(preferences), userId]);
+      }
+    }
+
+    // 3. Update user points
     await query(
       `UPDATE users SET total_points = total_points + (
          SELECT points FROM landmarks WHERE id = $1
