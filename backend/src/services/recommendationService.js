@@ -16,7 +16,6 @@ class RecommendationService {
     const landmarks = result.rows;
 
     // Get weather context
-    // TODO: Add error handling
     let weather = null;
     try {
       weather = await weatherService.getCurrentWeather(lat, lng);
@@ -24,17 +23,29 @@ class RecommendationService {
       // Weather unavailable, continue without it
     }
 
-    // Get user's visited landmarks
-    const visited = await query(
-      'SELECT landmark_id FROM collections WHERE user_id = $1',
-      [userId]
-    );
-    const visitedIds = new Set(visited.rows.map((r) => r.landmark_id));
+    // Get user data
+    let userPoints = 0;
+    let visitedIds = new Set();
+    
+    if (userId) {
+      const userResult = await query('SELECT total_points FROM users WHERE id = $1', [userId]);
+      userPoints = userResult.rows[0]?.total_points || 0;
+
+      const visited = await query(
+        'SELECT landmark_id FROM collections WHERE user_id = $1',
+        [userId]
+      );
+      visitedIds = new Set(visited.rows.map((r) => r.landmark_id));
+    }
 
     // Score and rank landmarks
+    const currentHour = preferences.current_hour !== undefined 
+      ? parseInt(preferences.current_hour) 
+      : new Date().getHours();
+
     const scored = landmarks.map((landmark) => ({
       ...landmark,
-      score: this.calculateScore(landmark, preferences, weather, visitedIds),
+      score: this.calculateScore(landmark, preferences, weather, visitedIds, currentHour, userPoints),
       is_visited: visitedIds.has(landmark.id),
     }));
 
@@ -47,33 +58,92 @@ class RecommendationService {
    * @param {object} preferences - User preferences
    * @param {object} weather - Current weather
    * @param {Set} visitedIds - Set of visited landmark IDs
+   * @param {number} userPoints - User's total points for difficulty adaptation
    * @returns {number} Score between 0 and 100
    */
-  calculateScore(landmark, preferences, weather, visitedIds) {
+  calculateScore(landmark, preferences, weather, visitedIds, currentHour, userPoints = 0) {
     let score = 50;
+    const tags = landmark.tags || [];
+    const visitorType = preferences.visitor_type || 'tourist';
 
-    // Unvisited bonus
+    // 1. Unvisited bonus
     if (!visitedIds.has(landmark.id)) {
       score += 15;
     }
 
-    // Category preference match
+    // 2. Category/Tag preference match
     if (preferences.preferred_categories?.includes(landmark.category)) {
-      score += 20;
+      score += 10;
     }
+    
+    // Semantic tag matches (Intuitive categorization)
+    const preferredTags = preferences.preferred_tags || [];
+    preferredTags.forEach(tag => {
+      if (tags.includes(tag)) score += 10;
+    });
 
-    // Accessibility match
+    // 3. Accessibility match
     if (landmark.accessibility_level >= (preferences.accessibility_min || 0)) {
       score += 10;
     }
 
-    // Weather consideration
-    if (weather?.isRaining && landmark.is_indoor) {
-      score += 15;
+    // 4. Time-of-Day Adaptation (Tag-based)
+    if (currentHour >= 6 && currentHour < 11) { // Morning
+      if (tags.includes('morning-vibe') || tags.includes('quiet')) score += 15;
+    } else if (currentHour >= 11 && currentHour < 17) { // Midday
+      if (landmark.is_indoor || tags.includes('shelter')) score += 10;
+    } else if (currentHour >= 17 && currentHour < 22) { // Evening
+      if (tags.includes('golden-hour') || tags.includes('scenic') || tags.includes('lit-up')) score += 20;
+    } else { // Late Night
+      if (tags.includes('nightlife')) score += 15;
     }
 
-    // Points value
-    score += Math.min(landmark.points / 3, 10);
+    // 5. Visitor Type Adaptation
+    if (visitorType === 'tourist') {
+      if (landmark.points >= 20 || tags.includes('iconic')) score += 15;
+    } else if (visitorType === 'local') {
+      if (landmark.points >= 20) score -= 15; // Crowd avoidance
+      if (tags.includes('hidden-gem') || tags.includes('off-the-beaten-path')) score += 20;
+    }
+
+    // 6. Weather consideration
+    if (weather) {
+      if ((weather.isRaining || weather.isSnowing) && landmark.is_indoor) score += 15;
+      if (weather.isCold && weather.isWindy) {
+        if (landmark.is_indoor || tags.includes('enclosed')) score += 15;
+        if (!landmark.is_indoor) score -= 10;
+      }
+      if (weather.isHot && tags.includes('shaded')) score += 10;
+      if (weather.isClear && weather.temp >= 15 && weather.temp <= 25) {
+        if (tags.includes('scenic') || !landmark.is_indoor) score += 15;
+      }
+    }
+
+    // 7. Group/Social Context Adaptation
+    const groupContext = preferences.group_context || 'solo';
+    if (groupContext === 'kids') {
+      if (tags.includes('steep-climb')) score -= 20;
+      if (tags.includes('interactive') || tags.includes('park') || tags.includes('fun')) score += 20;
+    } else if (groupContext === 'elderly') {
+      score += (landmark.accessibility_level || 0) * 5;
+      if (tags.includes('rest-stop') || tags.includes('benches')) score += 15;
+      if (tags.includes('steep-climb') || tags.includes('stairs')) score -= 30;
+    } else if (groupContext === 'large_group') {
+      if (tags.includes('narrow') || landmark.is_indoor === true) score -= 20;
+      if (tags.includes('park') || tags.includes('open-space') || tags.includes('outdoor')) score += 15;
+    }
+
+    // 8. Adaptive Difficulty Progression (Priority 10)
+    if (userPoints < 500) { // New User
+      if (tags.includes('iconic') || tags.includes('popular')) score += 15;
+      if (tags.includes('hidden-gem') || tags.includes('off-the-beaten-path')) score -= 10;
+    } else if (userPoints > 2000) { // Power User
+      if (tags.includes('hidden-gem') || tags.includes('off-the-beaten-path')) score += 20;
+      if (tags.includes('iconic') || tags.includes('popular')) score -= 15;
+    }
+
+    // 9. Points value (Small weight for global ranking)
+    score += Math.min(landmark.points / 5, 10);
 
     return Math.min(Math.round(score), 100);
   }

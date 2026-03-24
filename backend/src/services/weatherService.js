@@ -32,6 +32,11 @@ class WeatherService {
       description: response.data.weather[0].description,
       icon: response.data.weather[0].icon,
       isRaining: response.data.weather[0].main === 'Rain',
+      isSnowing: response.data.weather[0].main === 'Snow',
+      isCold: response.data.main.temp < 10,
+      isHot: response.data.main.temp > 28,
+      isWindy: response.data.wind.speed > 20,
+      isClear: response.data.weather[0].main === 'Clear',
       windSpeed: response.data.wind.speed,
       humidity: response.data.main.humidity,
     };
