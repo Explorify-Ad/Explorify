@@ -85,7 +85,7 @@ class RouteService {
       { latitude: startLat, longitude: startLng },
       landmarks,
       timeBudget,
-      preferences.group_context,
+      preferences,
       batteryLevel
     );
 
@@ -126,11 +126,13 @@ class RouteService {
    * @param {number} batteryLevel - Device battery level (0-100)
    * @returns {Array} Ordered landmarks
    */
-  buildRoute(start, landmarks, timeBudget, groupContext = 'solo', batteryLevel = 100) {
+  buildRoute(start, landmarks, timeBudget, preferences = {}, batteryLevel = 100) {
     const route = [];
     const remaining = [...landmarks];
     let current = start;
     let totalTime = 0;
+
+    const groupContext = preferences.group_context || 'solo';
 
     // Learned parameters (Priority 4 & 8)
     const userWalkingPace = preferences.walking_speed_kmh || 4.5;
