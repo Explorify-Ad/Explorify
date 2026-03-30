@@ -1,5 +1,7 @@
 const { query } = require('../config/database');
 const { calculateDistance } = require('../utils/distance');
+const recommendationService = require('./recommendationService');
+const weatherService = require('./weatherService');
 
 /**
  * Route generation service.
@@ -12,6 +14,31 @@ class RouteService {
    * @returns {Promise<object>} Generated route
    */
   async generateRoute({ startLat, startLng, timeBudget, preferences = {}, userId }) {
+    const batteryLevel = preferences.battery_level !== undefined ? preferences.battery_level : 100;
+    const abandonmentStreak = preferences.abandonment_streak || 0;
+
+    // Priority 5: Route Abandonment Adaptation
+    // Automatically suggest shorter routes if user has abandoned multiple times
+    if (abandonmentStreak >= 3) {
+      timeBudget = Math.min(timeBudget, preferences.suggested_duration_limit || 45);
+    }
+
+    // Cap time budget to 2 hours if with kids or elderly
+    if (
+      preferences.group_context === 'kids' ||
+      preferences.group_context === 'elderly'
+    ) {
+      timeBudget = Math.min(timeBudget, 120);
+    }
+
+    // Battery-aware constraints: strictly limit stops and duration if battery is low
+    if (batteryLevel < 20) {
+      timeBudget = Math.min(timeBudget, 60);
+    }
+    if (batteryLevel < 10) {
+      timeBudget = Math.min(timeBudget, 30);
+    }
+
     // Fetch available landmarks
     let sql = 'SELECT * FROM landmarks WHERE 1=1';
     const params = [];
@@ -32,14 +59,34 @@ class RouteService {
     }
 
     const result = await query(sql, params);
-    const landmarks = result.rows;
+    let landmarks = result.rows;
 
-    // Build route using nearest-neighbor algorithm
-    // TODO: Implement route optimization algorithm
+    // Get context for scoring
+    let weather = null;
+    try {
+      weather = await weatherService.getCurrentWeather(startLat, startLng);
+    } catch (err) {}
+
+    const visited = userId ? await query('SELECT landmark_id FROM collections WHERE user_id = $1', [userId]) : { rows: [] };
+    const visitedIds = new Set(visited.rows.map(r => r.landmark_id));
+    
+    const currentHour = preferences.current_hour !== undefined 
+      ? parseInt(preferences.current_hour) 
+      : new Date().getHours();
+
+    // Pre-calculate scores for all candidate landmarks
+    landmarks = landmarks.map(l => ({
+      ...l,
+      _score: recommendationService.calculateScore(l, preferences, weather, visitedIds, currentHour)
+    }));
+
+    // Build route using score-weighted nearest-neighbor algorithm
     const route = this.buildRoute(
       { latitude: startLat, longitude: startLng },
       landmarks,
-      timeBudget
+      timeBudget,
+      preferences,
+      batteryLevel
     );
 
     // Save route to database
@@ -75,18 +122,26 @@ class RouteService {
    * @param {object} start - Starting coordinates
    * @param {Array} landmarks - Available landmarks
    * @param {number} timeBudget - Available time in minutes
+   * @param {string} groupContext - User companion context
+   * @param {number} batteryLevel - Device battery level (0-100)
    * @returns {Array} Ordered landmarks
    */
-  buildRoute(start, landmarks, timeBudget) {
+  buildRoute(start, landmarks, timeBudget, preferences = {}, batteryLevel = 100) {
     const route = [];
     const remaining = [...landmarks];
     let current = start;
     let totalTime = 0;
 
-    while (remaining.length > 0 && totalTime < timeBudget) {
-      let nearestIdx = 0;
-      let nearestDist = Infinity;
+    const groupContext = preferences.group_context || 'solo';
 
+    // Learned parameters (Priority 4 & 8)
+    const userWalkingPace = preferences.walking_speed_kmh || 4.5;
+    const dwellMultipliers = preferences.category_dwell_multipliers || {};
+
+    while (remaining.length > 0 && totalTime < timeBudget) {
+      let bestIdx = 0;
+      let bestPriority = -1;
+      let bestDist = Infinity;
       for (let i = 0; i < remaining.length; i++) {
         const dist = calculateDistance(
           current.latitude,
@@ -94,18 +149,38 @@ class RouteService {
           remaining[i].latitude,
           remaining[i].longitude
         );
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearestIdx = i;
+
+        // Critical Battery Constraint: only landmarks within 500m
+        if (batteryLevel < 10 && dist > 0.5) {
+          continue;
+        }
+
+        // Cap leg distance for elderly and kids context (~600m max)
+        if ((groupContext === 'kids' || groupContext === 'elderly') && dist > 0.6) {
+          continue;
+        }
+        
+        // Priority = Score / (Distance + 0.1) 
+        // We use 0.1 to avoid division by zero and give a small floor to distance
+        const priority = remaining[i]._score / (dist + 0.1);
+
+        if (priority > bestPriority) {
+          bestPriority = priority;
+          bestIdx = i;
+          bestDist = dist;
         }
       }
 
-      const walkTime = (nearestDist / 4.5) * 60;
-      const visitTime = remaining[nearestIdx].avg_visit_duration_min || 30;
+      // Calculate time using learned pace and dwell multipliers
+      const walkTime = (bestDist / userWalkingPace) * 60;
+      
+      const landmark = remaining[bestIdx];
+      const categoryMultiplier = dwellMultipliers[landmark.category] || 1.0;
+      const visitTime = (landmark.avg_visit_duration_min || 30) * categoryMultiplier;
 
       if (totalTime + walkTime + visitTime > timeBudget) break;
 
-      const landmark = remaining.splice(nearestIdx, 1)[0];
+      remaining.splice(bestIdx, 1);
       route.push({
         ...landmark,
         order: route.length + 1,

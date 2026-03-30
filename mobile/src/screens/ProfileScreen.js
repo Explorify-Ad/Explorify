@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, ScrollView, Pressable, StyleSheet, TouchableOpacity } from 'react-native';
 import Svg, { Polygon, Line, Text as SvgText } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -80,6 +80,13 @@ export default function ProfileScreen() {
   const explorerType = getExplorerType();
   const achievements = buildAchievements(collection, streak);
 
+  const [visitorType, setVisitorType] = useState('tourist');
+
+  const visitorTypes = [
+    { id: 'tourist', label: '✈️ Tourist', desc: 'Prioritizes iconic landmarks.' },
+    { id: 'local', label: '🏠 Local', desc: 'Surfaces hidden gems and off-beat spots.' },
+  ];
+
   const handleSignOut = async () => {
     await signOut();
     navigation.navigate('Login');
@@ -117,6 +124,26 @@ export default function ProfileScreen() {
           <Text style={[styles.userMeta, { color: theme.textSecondary }]}>
             {authUser?.email || userName} · Dublin
           </Text>
+        </View>
+
+        {/* Visitor Type Selection (Adaptive) */}
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginTop: 20 }]}>Persona</Text>
+        <View style={styles.visitorTypeContainer}>
+          {visitorTypes.map((type) => (
+            <TouchableOpacity
+              key={type.id}
+              style={[
+                styles.visitorOption,
+                visitorType === type.id && { borderColor: theme.primary, backgroundColor: `${theme.primary}10` }
+              ]}
+              onPress={() => setVisitorType(type.id)}
+            >
+              <Text style={[styles.visitorLabel, visitorType === type.id && { color: theme.primary }]}>
+                {type.label}
+              </Text>
+              <Text style={styles.visitorDesc}>{type.desc}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         {/* Stats */}
@@ -185,6 +212,30 @@ const styles = StyleSheet.create({
   avatarLetter: { fontSize: 32, fontWeight: '700' },
   userName: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
   userMeta: { fontSize: 13 },
+  visitorTypeContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
+  },
+  visitorOption: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#fff',
+  },
+  visitorLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 4,
+    color: '#374151',
+  },
+  visitorDesc: {
+    fontSize: 11,
+    color: '#6B7280',
+    lineHeight: 14,
+  },
   statsGrid: {
     flexDirection: 'row', backgroundColor: 'white', borderRadius: 20, padding: 16, marginBottom: 24,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3,

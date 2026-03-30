@@ -41,6 +41,13 @@ export default function HomeScreen({ navigation }) {
 
         <TouchableOpacity
           style={styles.button}
+          onPress={() => navigation.navigate('Group')}
+        >
+          <Text style={styles.buttonText}>👥 Travel Together</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.button}
           onPress={() => navigation.navigate('Profile')}
         >
           <Text style={styles.buttonText}>👤 Profile</Text>

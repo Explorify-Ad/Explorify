@@ -17,6 +17,7 @@ import NearbyScreen from '../screens/NearbyScreen';
 import CreateExpeditionScreen from '../screens/CreateExpeditionScreen';
 import ExpeditionPreviewScreen from '../screens/ExpeditionPreviewScreen';
 import ExpeditionChatScreen from '../screens/ExpeditionChatScreen';
+import GroupScreen from '../screens/GroupScreen';
 import { useTheme } from '../context/ThemeContext';
 import useStore from '../store/useStore';
 import supabase from '../services/supabase';
@@ -151,6 +152,11 @@ export default function AppNavigator() {
         <Stack.Screen
           name="ExpeditionChat"
           component={ExpeditionChatScreen}
+        />
+        <Stack.Screen
+          name="Group"
+          component={GroupScreen}
+          options={{ title: 'Group Travel' }}
         />
       </Stack.Navigator>
     </NavigationContainer>
