@@ -15,6 +15,7 @@ import { useTheme } from '../context/ThemeContext';
 import { getCurrentLocation } from '../services/location';
 import { fetchAllLandmarks, fetchActiveExpeditions } from '../services/supabase';
 import useStore from '../store/useStore';
+import useBattery from '../hooks/useBattery';
 
 export default function MapScreen() {
   const navigation = useNavigation();
@@ -24,6 +25,7 @@ export default function MapScreen() {
   const getActiveQuest = useStore((s) => s.getActiveQuest);
   const authUser = useStore((s) => s.authUser);
   const activeQuest = getActiveQuest();
+  const { tier: batteryTier, batteryLevel, isCharging } = useBattery();
 
   const [showSheet, setShowSheet] = useState(false);
   const [landmarks, setLandmarks] = useState([]);
@@ -188,6 +190,20 @@ export default function MapScreen() {
       )}
 
       <TopHUD />
+
+      {/* Battery warning banner — only shown when not charging and tier is low/critical */}
+      {!isCharging && (batteryTier === 'low' || batteryTier === 'critical') && (
+        <View style={[
+          styles.batteryBanner,
+          { backgroundColor: batteryTier === 'critical' ? '#DC2626' : '#D97706' },
+        ]}>
+          <Text style={styles.batteryText}>
+            {batteryTier === 'critical'
+              ? `Battery critically low (${Math.round(batteryLevel * 100)}%) — routes limited to 30 min`
+              : `Battery low (${Math.round(batteryLevel * 100)}%) — routes capped at 1 hour`}
+          </Text>
+        </View>
+      )}
 
       <Animated.View
         style={[
@@ -360,6 +376,22 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  batteryBanner: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 88,           // below TopHUD
+    paddingVertical: 7,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  batteryText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   questStrip: {
     position: 'absolute',

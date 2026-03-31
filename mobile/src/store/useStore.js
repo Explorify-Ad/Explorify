@@ -49,6 +49,7 @@ const useStore = create((set, get) => ({
   hasOnboarded: false,
   userName: 'Explorer',
   interests: [],          // array of category ids from onboarding
+  visitorType: 'tourist', // 'tourist' | 'local'
   collection: [],         // checked-in landmarks with metadata
   activeQuestId: null,    // id from QUESTS
   hydrated: false,
@@ -73,19 +74,19 @@ const useStore = create((set, get) => ({
     set({ authUser: null, isAuthenticated: false });
   },
 
-  completeOnboarding: async (interests, userName = 'Explorer') => {
+  completeOnboarding: async (interests, userName = 'Explorer', visitorType = 'tourist') => {
     const catMap = {
       architecture: 'q_arch', food: 'q_food', history: 'q_history',
       art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
     };
     const defaultQuest = catMap[interests[0]] || 'q_arch';
-    set({ hasOnboarded: true, interests, userName, activeQuestId: defaultQuest });
+    set({ hasOnboarded: true, interests, visitorType, userName, activeQuestId: defaultQuest });
     await get()._persist();
     // Save profile to Supabase if logged in
     const { authUser } = get();
     if (authUser?.id) {
       const { saveUserProfile } = await import('../services/supabase');
-      await saveUserProfile(authUser.id, { displayName: userName, interests });
+      await saveUserProfile(authUser.id, { displayName: userName, interests, visitorType });
     }
   },
 
@@ -195,11 +196,11 @@ const useStore = create((set, get) => ({
   // ─── Persistence ──────────────────────────────────────────────────────────
 
   _persist: async () => {
-    const { hasOnboarded, userName, interests, collection, activeQuestId } = get();
+    const { hasOnboarded, userName, interests, visitorType, collection, activeQuestId } = get();
     try {
       await AsyncStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ hasOnboarded, userName, interests, collection, activeQuestId }),
+        JSON.stringify({ hasOnboarded, userName, interests, visitorType, collection, activeQuestId }),
       );
     } catch {}
   },
@@ -232,6 +233,7 @@ const useStore = create((set, get) => ({
       if (serverCollection?.length) updates.collection = serverCollection;
       if (profile) {
         if (profile.display_name) updates.userName = profile.display_name;
+        if (profile.visitor_type) updates.visitorType = profile.visitor_type;
         if (profile.interests?.length) {
           updates.interests = profile.interests;
           updates.hasOnboarded = true;

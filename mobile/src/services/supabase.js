@@ -104,11 +104,12 @@ export async function fetchCollections(userId) {
 
 // ─── User Profile ─────────────────────────────────────────────────────────────
 
-export async function saveUserProfile(userId, { displayName, interests }) {
+export async function saveUserProfile(userId, { displayName, interests, visitorType }) {
   const { error } = await supabase.from('user_profiles').upsert({
     id: userId,
     display_name: displayName,
     interests,
+    visitor_type: visitorType ?? 'tourist',
     updated_at: new Date().toISOString(),
   });
   if (error) console.warn('saveUserProfile error:', error.message);
@@ -122,6 +123,56 @@ export async function fetchUserProfile(userId) {
     .single();
   if (error) return null;
   return data;
+}
+
+// ─── Adaptive routing helpers ─────────────────────────────────────────────────
+
+/**
+ * Returns per-category average dwell times (minutes) for a user, keyed by
+ * normalised category name (e.g. { History: 42, Art: 18 }).
+ * Used to personalise the route service's visit-time estimates.
+ */
+export async function fetchUserDwellTimes(userId) {
+  const { data, error } = await supabase
+    .from('collections')
+    .select('landmark_category, dwell_time_min')
+    .eq('user_id', userId)
+    .not('dwell_time_min', 'is', null)
+    .gt('dwell_time_min', 0);
+  if (error || !data?.length) return null;
+
+  const totals = {};
+  const counts = {};
+  data.forEach(({ landmark_category, dwell_time_min }) => {
+    if (!landmark_category) return;
+    totals[landmark_category] = (totals[landmark_category] || 0) + dwell_time_min;
+    counts[landmark_category] = (counts[landmark_category] || 0) + 1;
+  });
+
+  const avgs = {};
+  Object.keys(totals).forEach((cat) => {
+    avgs[cat] = Math.round(totals[cat] / counts[cat]);
+  });
+  return avgs; // { History: 42, Art: 18, ... }
+}
+
+/**
+ * Returns how many times a user has visited each category.
+ * Passed to the route service as preferences.category_counts so the novelty
+ * bonus can boost under-explored categories.
+ */
+export async function fetchCategoryCounts(userId) {
+  const { data, error } = await supabase
+    .from('collections')
+    .select('landmark_category')
+    .eq('user_id', userId);
+  if (error || !data?.length) return null;
+
+  const counts = {};
+  data.forEach(({ landmark_category }) => {
+    if (landmark_category) counts[landmark_category] = (counts[landmark_category] || 0) + 1;
+  });
+  return counts; // { History: 8, Nature: 1, ... }
 }
 
 // ─── Expeditions ──────────────────────────────────────────────────────────────
