@@ -21,8 +21,6 @@ const authenticate = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-
-    // TODO: Add token caching for performance
     const { data: { user }, error } = await supabase.auth.getUser(token);
 
     if (error || !user) {
@@ -34,9 +32,23 @@ const authenticate = async (req, res, next) => {
       });
     }
 
+    // Implicitly sign up/sync user to our local DB
+    const { query } = require('../config/database');
+    const existingUser = await query('SELECT id FROM users WHERE id = $1', [user.id]);
+    
+    if (existingUser.rows.length === 0) {
+      // Create user record in our DB
+      const displayName = user.user_metadata?.name || user.email.split('@')[0];
+      await query(
+        'INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3)',
+        [user.id, user.email, displayName]
+      );
+    }
+
     req.user = user;
     next();
   } catch (err) {
+    console.error('Auth Middleware Error:', err);
     return res.status(500).json({
       error: {
         code: 'INTERNAL_ERROR',
