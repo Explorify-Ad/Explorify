@@ -1,4 +1,5 @@
 const { query } = require('../config/database');
+const QuestService = require('../services/questService');
 
 /**
  * Get a user's collection of visited landmarks.
@@ -29,58 +30,93 @@ const getUserCollection = async (req, res, next) => {
 };
 
 /**
- * Add a landmark to user's collection.
+ * Add a landmark to user's collection (Check-in).
  */
 const addToCollection = async (req, res, next) => {
   try {
     const { landmark_id, dwell_time_min, rating, notes } = req.body;
     const userId = req.user.id;
 
-    // TODO: Add input validation
-    const result = await query(
+    // Check if landmark exists
+    const landmarkResult = await query('SELECT * FROM landmarks WHERE id = $1', [landmark_id]);
+    if (landmarkResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Landmark not found' });
+    }
+
+    const landmark = landmarkResult.rows[0];
+
+    // Check if already in collection
+    const exists = await query(
+      'SELECT * FROM collections WHERE user_id = $1 AND landmark_id = $2',
+      [userId, landmark_id]
+    );
+
+    if (exists.rows.length > 0) {
+      return res.status(400).json({ error: 'Already visited this landmark' });
+    }
+
+    // 1. Add to collection
+    const checkInResult = await query(
       `INSERT INTO collections (user_id, landmark_id, dwell_time_min, rating, notes)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
       [userId, landmark_id, dwell_time_min, rating, notes]
     );
 
-    // 2. Recalibrate dwell multipliers (Priority 8)
-    if (dwell_time_min) {
-      const userResult = await query('SELECT preferences FROM users WHERE id = $1', [userId]);
-      const preferences = userResult.rows[0].preferences || {};
-      const landmarkResult = await query('SELECT category, avg_visit_duration_min FROM landmarks WHERE id = $1', [landmark_id]);
-      const { category, avg_visit_duration_min } = landmarkResult.rows[0];
-
-      if (avg_visit_duration_min > 0) {
-        const actualRatio = dwell_time_min / avg_visit_duration_min;
-        const multipliers = preferences.category_dwell_multipliers || {};
-        const oldMultiplier = multipliers[category] || 1.0;
-        
-        // Moving average: 80% old, 20% new
-        multipliers[category] = (oldMultiplier * 0.8) + (actualRatio * 0.2);
-        
-        preferences.category_dwell_multipliers = multipliers;
-        await query('UPDATE users SET preferences = $1 WHERE id = $2', [JSON.stringify(preferences), userId]);
-      }
-    }
-
-    // 3. Update user points
+    // 2. Update user total points
     await query(
-      `UPDATE users SET total_points = total_points + (
-         SELECT points FROM landmarks WHERE id = $1
-       ) WHERE id = $2`,
-      [landmark_id, userId]
+      'UPDATE users SET total_points = total_points + $1 WHERE id = $2',
+      [landmark.points || 150, userId]
     );
 
-    res.status(201).json({ data: result.rows[0] });
+    // 3. Adaptive Feedback: Boost themes if rating is high
+    if (rating && rating >= 4) {
+      const category = landmark.category;
+      // Boost the weight of this category in user preferences (Simple DNA refinement)
+      await query(
+        `UPDATE users 
+         SET preferences = jsonb_set(
+           preferences, 
+           '{interests}', 
+           (CASE 
+              WHEN preferences->'interests' ? $1 THEN preferences->'interests'
+              ELSE (preferences->'interests') || jsonb_build_array($1)
+            END)
+         )
+         WHERE id = $2`,
+        [category, userId]
+      );
+    }
+
+    // 4. Update behavioral learning (Dwell Time)
+    if (dwell_time_min) {
+      const category = landmark.category;
+      const baseDuration = landmark.avg_visit_duration_min || 30;
+      const actualRatio = dwell_time_min / baseDuration;
+      
+      await query(
+        `UPDATE users 
+         SET preferences = jsonb_set(
+           preferences, 
+           '{category_dwell_multipliers, ${category}}', 
+           to_jsonb(COALESCE((preferences->'category_dwell_multipliers'->>'${category}')::float * 0.8 + $1 * 0.2, $1))
+         )
+         WHERE id = $2`,
+        [actualRatio, userId]
+      );
+    }
+
+    // 5. Trigger Quest & Community logic
+    const outcomes = await QuestService.handleCheckIn(userId, landmark);
+
+    res.status(201).json({ 
+      message: 'Check-in successful',
+      data: checkInResult.rows[0],
+      outcomes: outcomes 
+    });
   } catch (err) {
     if (err.code === '23505') {
-      return res.status(409).json({
-        error: {
-          code: 'DUPLICATE',
-          message: 'Landmark already in collection',
-        },
-      });
+      return res.status(409).json({ error: 'Landmark already in collection' });
     }
     next(err);
   }
