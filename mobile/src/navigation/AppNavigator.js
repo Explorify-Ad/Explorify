@@ -9,7 +9,7 @@ import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import MapScreen from '../screens/MapScreen';
-import QuestsScreen from '../screens/QuestsScreen';
+import QuestScreen from '../screens/QuestScreen';
 import CollectionScreen from '../screens/CollectionScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import LandmarkDetailScreen from '../screens/LandmarkDetailScreen';
@@ -54,7 +54,7 @@ function TabNavigator() {
       })}
     >
       <Tab.Screen name="Map" component={MapScreen} />
-      <Tab.Screen name="Quests" component={QuestsScreen} />
+      <Tab.Screen name="Quests" component={QuestScreen} />
       <Tab.Screen name="Collection" component={CollectionScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
@@ -80,7 +80,7 @@ export default function AppNavigator() {
           id: session.user.id,
           email: session.user.email,
           name: session.user.user_metadata?.name || session.user.email.split('@')[0],
-        });
+        }, session.access_token);
       }
     });
 
@@ -91,10 +91,10 @@ export default function AppNavigator() {
           id: session.user.id,
           email: session.user.email,
           name: session.user.user_metadata?.name || session.user.email.split('@')[0],
-        });
+        }, session.access_token);
         syncFromSupabase();
       } else {
-        setAuthUser(null);
+        setAuthUser(null, null);
       }
     });
 
@@ -115,6 +115,30 @@ export default function AppNavigator() {
     : !hasOnboarded
     ? 'Onboarding'
     : 'Main';
+
+  const isConfigPlaceholder = 
+    !process.env.EXPO_PUBLIC_SUPABASE_URL || 
+    process.env.EXPO_PUBLIC_SUPABASE_URL.includes('your-project') ||
+    !process.env.EXPO_PUBLIC_TOMTOM_API_KEY;
+
+  if (isConfigPlaceholder) {
+    return (
+      <View style={{ flex: 1, padding: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFDF8' }}>
+        <Text style={{ fontSize: 40, marginBottom: 20 }}>⚙️</Text>
+        <Text style={{ fontSize: 24, fontWeight: '800', textAlign: 'center', color: '#1A1A2E', marginBottom: 12 }}>
+          Configuration Required
+        </Text>
+        <Text style={{ fontSize: 14, textAlign: 'center', color: '#6B7280', lineHeight: 22 }}>
+          Please fill in your Supabase and TomTom keys in the <Text style={{ fontWeight: '700' }}>mobile/.env</Text> file and restart the Expo server.
+        </Text>
+        <View style={{ marginTop: 32, padding: 16, backgroundColor: '#FEF3C7', borderRadius: 12 }}>
+          <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '600' }}>
+            Note: Placeholders like 'your-project' were detected.
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <NavigationContainer>

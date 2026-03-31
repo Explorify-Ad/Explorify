@@ -46,12 +46,12 @@ export default function SignupScreen() {
       });
       if (authError) throw authError;
 
-      const user = data.user;
+      const { user, session } = data;
       setAuthUser({
         id: user.id,
         email: user.email,
         name: name.trim(),
-      });
+      }, session?.access_token);
       // Go to onboarding so they pick interests
       navigation.navigate('Onboarding');
     } catch (e) {

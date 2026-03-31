@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setAuthToken } from '../services/api';
 
 const STORAGE_KEY = '@explorify_v1';
 const XP_PER_LEVEL = 500;
@@ -51,6 +52,15 @@ const useStore = create((set, get) => ({
   interests: [],          // array of category ids from onboarding
   collection: [],         // checked-in landmarks with metadata
   activeQuestId: null,    // id from QUESTS
+  preferences: {          // Adaptive preferences from backend
+    walking_speed_kmh: 4.5,
+    category_dwell_multipliers: {},
+    visitor_type: 'tourist',
+    abandonment_streak: 0,
+  },
+  quests: [],             // User quests from backend
+  communities: [],        // All available communities
+  userBadges: [],         // Awarded badges
   hydrated: false,
 
   // ─── Auth state (not persisted — Supabase session handles it) ─────────────
@@ -59,18 +69,55 @@ const useStore = create((set, get) => ({
 
   // ─── Actions ──────────────────────────────────────────────────────────────
 
-  setAuthUser: (user) => {
+  fetchQuests: async () => {
+    try {
+      const api = (await import('../services/api')).default;
+      const response = await api.get('/quests');
+      set({ quests: response.data.data });
+    } catch (err) {
+      console.warn('fetchQuests error:', err);
+    }
+  },
+
+  fetchCommunities: async () => {
+    try {
+      const api = (await import('../services/api')).default;
+      const response = await api.get('/quests/communities');
+      set({ communities: response.data.data });
+    } catch (err) {
+      console.warn('fetchCommunities error:', err);
+    }
+  },
+
+  joinCommunity: async (communityId) => {
+    try {
+      const api = (await import('../services/api')).default;
+      await api.post('/quests/join-community', { communityId });
+      await get().fetchCommunities();
+      await get().fetchQuests();
+    } catch (err) {
+      console.warn('joinCommunity error:', err);
+    }
+  },
+
+  setPreferences: (prefs) => {
+    set({ preferences: { ...get().preferences, ...prefs } });
+  },
+
+  setAuthUser: (user, token) => {
     set({
       authUser: user,
       isAuthenticated: !!user,
       userName: user?.name || get().userName,
     });
+    setAuthToken(token);
   },
 
   signOut: async () => {
     const supabase = (await import('../services/supabase')).default;
     await supabase.auth.signOut();
     set({ authUser: null, isAuthenticated: false });
+    setAuthToken(null);
   },
 
   completeOnboarding: async (interests, userName = 'Explorer') => {
@@ -89,19 +136,44 @@ const useStore = create((set, get) => ({
     }
   },
 
-  checkIn: async (landmark) => {
-    const { collection, authUser } = get();
-    if (collection.find((c) => String(c.id) === String(landmark.id))) return 0;
-    const xp = TIER_XP[landmark.tier] || 150;
-    const entry = { ...landmark, checkedInAt: new Date().toISOString(), xpEarned: xp };
-    set((state) => ({ collection: [...state.collection, entry] }));
-    await get()._persist();
-    // Sync to Supabase if logged in
-    if (authUser?.id) {
-      const { saveCheckIn } = await import('../services/supabase');
-      await saveCheckIn(authUser.id, landmark, xp);
+  checkIn: async (landmark, feedback = {}) => {
+    try {
+      const api = (await import('../services/api')).default;
+      const response = await api.post('/collections', {
+        landmark_id: landmark.id,
+        dwell_time_min: feedback.dwellTime || 0,
+        rating: feedback.rating || 0,
+        notes: feedback.notes || '',
+      });
+
+      const { data, outcomes } = response.data;
+      
+      const xp = data.points || 150;
+      const entry = { 
+        ...landmark, 
+        checkedInAt: new Date().toISOString(), 
+        xpEarned: xp,
+        rating: feedback.rating,
+        notes: feedback.notes
+      };
+
+      set((state) => ({ 
+        collection: [...state.collection, entry],
+        // Refresh quests after check-in to get new progress
+      }));
+
+      if (outcomes && outcomes.length > 0) {
+        // We can handle specific outcomes here or just re-fetch
+        await get().fetchQuests();
+      }
+
+      await get()._persist();
+      return { xp, outcomes };
+    } catch (err) {
+      console.warn('checkIn error:', err);
+      // Fallback for offline or error (optional)
+      return { xp: 0, error: err.message };
     }
-    return xp;
   },
 
   setActiveQuest: async (questId) => {
@@ -195,11 +267,17 @@ const useStore = create((set, get) => ({
   // ─── Persistence ──────────────────────────────────────────────────────────
 
   _persist: async () => {
-    const { hasOnboarded, userName, interests, collection, activeQuestId } = get();
+    const { 
+      hasOnboarded, userName, interests, collection, 
+      activeQuestId, preferences, quests, communities, userBadges 
+    } = get();
     try {
       await AsyncStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ hasOnboarded, userName, interests, collection, activeQuestId }),
+        JSON.stringify({ 
+          hasOnboarded, userName, interests, collection, 
+          activeQuestId, preferences, quests, communities, userBadges 
+        }),
       );
     } catch {}
   },
@@ -232,6 +310,7 @@ const useStore = create((set, get) => ({
       if (serverCollection?.length) updates.collection = serverCollection;
       if (profile) {
         if (profile.display_name) updates.userName = profile.display_name;
+        if (profile.preferences) updates.preferences = profile.preferences;
         if (profile.interests?.length) {
           updates.interests = profile.interests;
           updates.hasOnboarded = true;
