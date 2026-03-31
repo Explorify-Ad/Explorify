@@ -14,7 +14,9 @@
     "setup": "chmod +x scripts/setup-dev.sh && ./scripts/setup-dev.sh"
   },
   "dependencies": {
-    "react-refresh": "^0.18.0",
-    "postgres": "^3.4.8"
+    "postgres": "^3.4.8",
+    "react-dom": "19.1.0",
+    "react-native-web": "^0.21.0",
+    "react-refresh": "^0.18.0"
   }
 }

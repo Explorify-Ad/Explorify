@@ -1,7 +1,9 @@
+import { Platform } from 'react-native';
 import axios from 'axios';
 
-// TODO: Add API key to .env
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
+// Use 10.0.2.2 for Android emulator to reach localhost on host machine
+const DEFAULT_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000/api' : 'http://localhost:3000/api';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_URL;
 
 /**
  * Axios instance configured for the Explorify API.
