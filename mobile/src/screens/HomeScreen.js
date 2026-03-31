@@ -41,6 +41,13 @@ export default function HomeScreen({ navigation }) {
 
         <TouchableOpacity
           style={styles.button}
+          onPress={() => navigation.navigate('Quest')}
+        >
+          <Text style={styles.buttonText}>🏆 Quests & Rewards</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.button}
           onPress={() => navigation.navigate('Group')}
         >
           <Text style={styles.buttonText}>👥 Travel Together</Text>

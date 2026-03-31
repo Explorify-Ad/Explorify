@@ -75,10 +75,14 @@ class RouteService {
       : new Date().getHours();
 
     // Pre-calculate scores for all candidate landmarks
-    landmarks = landmarks.map(l => ({
-      ...l,
-      _score: recommendationService.calculateScore(l, preferences, weather, visitedIds, currentHour)
-    }));
+    landmarks = landmarks.map(l => {
+      const { score, reasons } = recommendationService.calculateScore(l, preferences, weather, visitedIds, currentHour);
+      return {
+        ...l,
+        _score: score,
+        reasons: reasons
+      };
+    });
 
     // Build route using score-weighted nearest-neighbor algorithm
     const route = this.buildRoute(

@@ -15,14 +15,22 @@ export default function RouteBuilderScreen({ route, navigation }) {
   const [visitorType, setVisitorType] = useState('tourist');
   const [batteryLevel, setBatteryLevel] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [context, setContext] = useState(null);
 
   useEffect(() => {
-    async function getBattery() {
-      const level = await Battery.getBatteryLevelAsync();
-      setVisitorType(prev => prev); // dummy to trigger re-render if needed
-      setBatteryLevel(level);
+    async function getInitialData() {
+      try {
+        const [bat, ctxResponse] = await Promise.all([
+          Battery.getBatteryLevelAsync(),
+          api.get('/landmarks/context')
+        ]);
+        setBatteryLevel(bat);
+        setContext(ctxResponse.data.data);
+      } catch (err) {
+        console.warn('Failed to fetch context', err);
+      }
     }
-    getBattery();
+    getInitialData();
 
     const subscription = Battery.addBatteryLevelListener(({ batteryLevel }) => {
       setBatteryLevel(batteryLevel);
@@ -71,6 +79,34 @@ export default function RouteBuilderScreen({ route, navigation }) {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Route Builder</Text>
+
+      {context && (
+        <View style={styles.contextHUD}>
+          <View style={styles.contextItem}>
+            <Text style={styles.contextEmoji}>
+              {context.weather?.isRaining ? '🌧️' : context.weather?.isClear ? '☀️' : '🌥️'}
+            </Text>
+            <View>
+              <Text style={styles.contextTitle}>{context.weather?.description || 'Loading...'}</Text>
+              <Text style={styles.contextSub}>
+                {context.weather?.isRaining ? 'Indoor venues boosted' : 'Scenic spots prioritized'}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.contextDivider} />
+          <View style={styles.contextItem}>
+            <Text style={styles.contextEmoji}>
+              {context.timeSlot === 'Morning' ? '🌅' : context.timeSlot === 'Evening' ? '🌇' : '🏙️'}
+            </Text>
+            <View>
+              <Text style={styles.contextTitle}>{context.timeSlot} Slot</Text>
+              <Text style={styles.contextSub}>
+                {context.timeSlot === 'Evening' ? 'Lighting & Vibes scored' : 'Activity focused'}
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
 
       {group_id && (
         <View style={styles.groupModeBanner}>
@@ -236,5 +272,43 @@ const styles = StyleSheet.create({
     color: '#0C5460',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  contextHUD: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  contextItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  contextEmoji: {
+    fontSize: 24,
+    marginRight: 10,
+  },
+  contextTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  contextSub: {
+    fontSize: 10,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  contextDivider: {
+    width: 1,
+    height: '80%',
+    backgroundColor: '#F3F4F6',
+    marginHorizontal: 12,
+    alignSelf: 'center',
   },
 });

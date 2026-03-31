@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import Svg, { Polygon, Line, Text as SvgText } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -71,6 +71,8 @@ export default function ProfileScreen() {
 
   const signOut      = useStore((s) => s.signOut);
   const authUser     = useStore((s) => s.authUser);
+  const preferences  = useStore((s) => s.preferences);
+  const setPreferences = useStore((s) => s.setPreferences);
   const navigation   = useNavigation();
 
   const level        = getLevel();
@@ -127,23 +129,82 @@ export default function ProfileScreen() {
         </View>
 
         {/* Visitor Type Selection (Adaptive) */}
-        <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginTop: 20 }]}>Persona</Text>
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginTop: 20 }]}>Adaptive Persona</Text>
         <View style={styles.visitorTypeContainer}>
           {visitorTypes.map((type) => (
             <TouchableOpacity
               key={type.id}
               style={[
                 styles.visitorOption,
-                visitorType === type.id && { borderColor: theme.primary, backgroundColor: `${theme.primary}10` }
+                preferences.visitor_type === type.id && { borderColor: theme.primary, backgroundColor: `${theme.primary}10` }
               ]}
-              onPress={() => setVisitorType(type.id)}
+              onPress={() => setPreferences({ visitor_type: type.id })}
             >
-              <Text style={[styles.visitorLabel, visitorType === type.id && { color: theme.primary }]}>
+              <Text style={[styles.visitorLabel, preferences.visitor_type === type.id && { color: theme.primary }]}>
                 {type.label}
               </Text>
               <Text style={styles.visitorDesc}>{type.desc}</Text>
             </TouchableOpacity>
           ))}
+        </View>
+
+        {/* Behavioral Insights */}
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Behavioral Insights</Text>
+        <View style={[styles.insightsCard, { backgroundColor: 'white' }]}>
+          <View style={styles.insightItem}>
+            <View style={[styles.insightIcon, { backgroundColor: '#EFF6FF' }]}>
+              <Text style={{ fontSize: 20 }}>🚶</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.insightLabel, { color: theme.textSecondary }]}>Learned Walking Pace</Text>
+              <Text style={[styles.insightValue, { color: theme.textPrimary }]}>
+                {(preferences.walking_speed_kmh || 4.5).toFixed(1)} km/h
+              </Text>
+            </View>
+            <View style={styles.insightBadge}>
+              <Text style={styles.badgeText}>
+                {(preferences.walking_speed_kmh || 4.5) > 4.5 ? 'Active' : 'Steady'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.insightDivider, { backgroundColor: theme.border }]} />
+
+          <View style={styles.insightItem}>
+            <View style={[styles.insightIcon, { backgroundColor: '#FDF2F8' }]}>
+              <Text style={{ fontSize: 20 }}>⏳</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.insightLabel, { color: theme.textSecondary }]}>Visit Style</Text>
+              <Text style={[styles.insightValue, { color: theme.textPrimary }]}>
+                {Object.keys(preferences.category_dwell_multipliers || {}).length > 0 
+                  ? 'Personalized' 
+                  : 'Standard'}
+              </Text>
+            </View>
+            <View style={styles.insightBadge}>
+              <Text style={styles.badgeText}>
+                {preferences.abandonment_streak > 0 ? 'Short Preferred' : 'Regular'}
+              </Text>
+            </View>
+          </View>
+          
+          <TouchableOpacity 
+            style={styles.resetBtn} 
+            onPress={() => {
+              Alert.alert('Reset Learning', 'This will clear your learned walking pace and visit durations. Continue?', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Reset', style: 'destructive', onPress: () => setPreferences({ 
+                    walking_speed_kmh: 4.5, 
+                    category_dwell_multipliers: {},
+                    abandonment_streak: 0 
+                  }) 
+                }
+              ]);
+            }}
+          >
+            <Text style={styles.resetBtnText}>Reset Behavioral Context</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Stats */}
@@ -244,6 +305,64 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 22, fontWeight: '700', marginBottom: 2 },
   statLabel: { fontSize: 11 },
   sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 12 },
+  insightsCard: {
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  insightItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  insightIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  insightLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  insightValue: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  insightBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  insightDivider: {
+    height: 1,
+    marginVertical: 16,
+  },
+  resetBtn: {
+    marginTop: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  resetBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9CA3AF',
+    textDecorationLine: 'underline',
+  },
   dnaCard: {
     borderRadius: 20, padding: 8, marginBottom: 20, alignItems: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3,

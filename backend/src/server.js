@@ -9,6 +9,7 @@ const userRoutes = require('./routes/users');
 const routeRoutes = require('./routes/routes');
 const collectionRoutes = require('./routes/collections');
 const groupRoutes = require('./routes/groups');
+const questRoutes = require('./routes/quests');
 const errorHandler = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
 
@@ -36,6 +37,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/routes', routeRoutes);
 app.use('/api/collections', collectionRoutes);
 app.use('/api/groups', groupRoutes);
+app.use('/api/quests', questRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

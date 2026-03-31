@@ -43,11 +43,15 @@ class RecommendationService {
       ? parseInt(preferences.current_hour) 
       : new Date().getHours();
 
-    const scored = landmarks.map((landmark) => ({
-      ...landmark,
-      score: this.calculateScore(landmark, preferences, weather, visitedIds, currentHour, userPoints),
-      is_visited: visitedIds.has(landmark.id),
-    }));
+    const scored = landmarks.map((landmark) => {
+      const { score, reasons } = this.calculateScore(landmark, preferences, weather, visitedIds, currentHour, userPoints);
+      return {
+        ...landmark,
+        score,
+        reasons,
+        is_visited: visitedIds.has(landmark.id),
+      };
+    });
 
     return scored.sort((a, b) => b.score - a.score);
   }
@@ -59,10 +63,11 @@ class RecommendationService {
    * @param {object} weather - Current weather
    * @param {Set} visitedIds - Set of visited landmark IDs
    * @param {number} userPoints - User's total points for difficulty adaptation
-   * @returns {number} Score between 0 and 100
+   * @returns {object} { score: number, reasons: string[] }
    */
   calculateScore(landmark, preferences, weather, visitedIds, currentHour, userPoints = 0) {
     let score = 50;
+    const reasons = [];
     const tags = landmark.tags || [];
     const visitorType = preferences.visitor_type || 'tourist';
 
@@ -89,33 +94,51 @@ class RecommendationService {
 
     // 4. Time-of-Day Adaptation (Tag-based)
     if (currentHour >= 6 && currentHour < 11) { // Morning
-      if (tags.includes('morning-vibe') || tags.includes('quiet')) score += 15;
+      if (tags.includes('morning-vibe') || tags.includes('quiet')) {
+        score += 15;
+        reasons.push('Quiet Morning');
+      }
     } else if (currentHour >= 11 && currentHour < 17) { // Midday
-      if (landmark.is_indoor || tags.includes('shelter')) score += 10;
+      if (landmark.is_indoor || tags.includes('shelter')) {
+        score += 10;
+        reasons.push('Midday Shelter');
+      }
     } else if (currentHour >= 17 && currentHour < 22) { // Evening
-      if (tags.includes('golden-hour') || tags.includes('scenic') || tags.includes('lit-up')) score += 20;
+      if (tags.includes('golden-hour') || tags.includes('scenic') || tags.includes('lit-up')) {
+        score += 20;
+        reasons.push('Scenic Golden Hour');
+      }
     } else { // Late Night
-      if (tags.includes('nightlife')) score += 15;
+      if (tags.includes('nightlife')) {
+        score += 15;
+        reasons.push('Nightlife Spot');
+      }
     }
 
     // 5. Visitor Type Adaptation
     if (visitorType === 'tourist') {
-      if (landmark.points >= 20 || tags.includes('iconic')) score += 15;
+      if (landmark.points >= 20 || tags.includes('iconic')) {
+        score += 15;
+        reasons.push('Must-see Icon');
+      }
     } else if (visitorType === 'local') {
-      if (landmark.points >= 20) score -= 15; // Crowd avoidance
-      if (tags.includes('hidden-gem') || tags.includes('off-the-beaten-path')) score += 20;
+      if (tags.includes('hidden-gem') || tags.includes('off-the-beaten-path')) {
+        score += 20;
+        reasons.push('Local Hidden Gem');
+      }
     }
 
     // 6. Weather consideration
     if (weather) {
-      if ((weather.isRaining || weather.isSnowing) && landmark.is_indoor) score += 15;
-      if (weather.isCold && weather.isWindy) {
-        if (landmark.is_indoor || tags.includes('enclosed')) score += 15;
-        if (!landmark.is_indoor) score -= 10;
+      if ((weather.isRaining || weather.isSnowing) && landmark.is_indoor) {
+        score += 15;
+        reasons.push('Rainy Day Pick');
       }
-      if (weather.isHot && tags.includes('shaded')) score += 10;
-      if (weather.isClear && weather.temp >= 15 && weather.temp <= 25) {
-        if (tags.includes('scenic') || !landmark.is_indoor) score += 15;
+      if (weather.isCold && weather.isWindy) {
+        if (landmark.is_indoor || tags.includes('enclosed')) {
+          score += 15;
+          reasons.push('Cozy Enclosure');
+        }
       }
     }
 
@@ -145,7 +168,10 @@ class RecommendationService {
     // 9. Points value (Small weight for global ranking)
     score += Math.min(landmark.points / 5, 10);
 
-    return Math.min(Math.round(score), 100);
+    return { 
+      score: Math.min(Math.round(score), 100), 
+      reasons: reasons.slice(0, 2) // Limit to top 2 reasons
+    };
   }
 }
 
