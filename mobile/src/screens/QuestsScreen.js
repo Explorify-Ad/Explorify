@@ -8,11 +8,11 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Clock } from 'lucide-react-native';
+import { Clock, CheckCircle2 } from 'lucide-react-native';
 import { TopHUD } from '../components/explorify/TopHUD';
 import { SecondaryAction } from '../components/explorify/Buttons';
 import { useTheme } from '../context/ThemeContext';
-import useStore from '../store/useStore';
+import useStore, { QUESTS } from '../store/useStore';
 
 export default function QuestsScreen() {
   const insets = useSafeAreaInsets();
@@ -25,10 +25,15 @@ export default function QuestsScreen() {
   const getSuggestedQuests = useStore((s) => s.getSuggestedQuests);
   const getExplorerType    = useStore((s) => s.getExplorerType);
   const setActiveQuest     = useStore((s) => s.setActiveQuest);
+  const completeQuest      = useStore((s) => s.completeQuest);
+  const completedQuests    = useStore((s) => s.completedQuests);
 
   const activeQuest  = getActiveQuest();
   const suggested    = getSuggestedQuests();
   const explorerType = getExplorerType();
+
+  const isComplete = activeQuest.progress >= activeQuest.target;
+  const allDone    = QUESTS.every((q) => completedQuests.includes(q.id));
 
   const progressPct = activeQuest.target > 0 ? activeQuest.progress / activeQuest.target : 0;
 
@@ -49,46 +54,64 @@ export default function QuestsScreen() {
       {/* Purple header band — active quest lives here */}
       <View style={[styles.headerBand, { paddingTop: HUD_HEIGHT }]}>
         <Animated.View style={[styles.activeCard, { opacity: cardOpacity, transform: [{ translateY: cardY }] }]}>
-          <View style={styles.activeQuestCat}>
-            <Text>{activeQuest.emoji}</Text>
-            <Text style={styles.activeQuestCatText}>{activeQuest.category}</Text>
-          </View>
-          <Text style={styles.activeQuestTitle}>{activeQuest.title}</Text>
-
-          <View style={styles.progressTrack}>
-            <Animated.View
-              style={[
-                styles.progressFill,
-                { width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) },
-              ]}
-            />
-          </View>
-          <Text style={styles.progressLabel}>
-            {activeQuest.progress} of {activeQuest.target} landmarks found
-          </Text>
-
-          <View style={styles.thumbRow}>
-            {Array.from({ length: activeQuest.target }).map((_, i) => (
-              <View
-                key={i}
-                style={[styles.thumb, {
-                  backgroundColor: i < activeQuest.progress ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
-                }]}
+          {isComplete ? (
+            /* ── Quest complete state ── */
+            <View style={styles.completeState}>
+              <CheckCircle2 size={44} color="white" strokeWidth={1.5} style={{ marginBottom: 10 }} />
+              <Text style={styles.completeTitle}>Quest Complete!</Text>
+              <Text style={styles.completeSubtitle}>{activeQuest.title}</Text>
+              <Pressable
+                style={styles.claimBtn}
+                onPress={() => completeQuest(activeQuest.id)}
               >
-                <Text style={styles.thumbText}>{i < activeQuest.progress ? '✓' : '?'}</Text>
+                <Text style={styles.claimBtnText}>Claim {activeQuest.xp} XP →</Text>
+              </Pressable>
+            </View>
+          ) : (
+            /* ── Active progress state ── */
+            <>
+              <View style={styles.activeQuestCat}>
+                <Text>{activeQuest.emoji}</Text>
+                <Text style={styles.activeQuestCatText}>{activeQuest.category}</Text>
               </View>
-            ))}
-          </View>
+              <Text style={styles.activeQuestTitle}>{activeQuest.title}</Text>
 
-          <View style={styles.metaRow}>
-            <View style={styles.xpPill}>
-              <Text style={styles.xpPillText}>{activeQuest.xp} XP</Text>
-            </View>
-            <View style={styles.timePill}>
-              <Clock size={12} color="white" strokeWidth={2} />
-              <Text style={styles.timePillText}>~{activeQuest.target * 20}min</Text>
-            </View>
-          </View>
+              <View style={styles.progressTrack}>
+                <Animated.View
+                  style={[
+                    styles.progressFill,
+                    { width: progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) },
+                  ]}
+                />
+              </View>
+              <Text style={styles.progressLabel}>
+                {activeQuest.progress} of {activeQuest.target} landmarks found
+              </Text>
+
+              <View style={styles.thumbRow}>
+                {Array.from({ length: activeQuest.target }).map((_, i) => (
+                  <View
+                    key={i}
+                    style={[styles.thumb, {
+                      backgroundColor: i < activeQuest.progress ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
+                    }]}
+                  >
+                    <Text style={styles.thumbText}>{i < activeQuest.progress ? '✓' : '?'}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.metaRow}>
+                <View style={styles.xpPill}>
+                  <Text style={styles.xpPillText}>{activeQuest.xp} XP</Text>
+                </View>
+                <View style={styles.timePill}>
+                  <Clock size={12} color="white" strokeWidth={2} />
+                  <Text style={styles.timePillText}>~{activeQuest.target * 20}min</Text>
+                </View>
+              </View>
+            </>
+          )}
         </Animated.View>
       </View>
 
@@ -100,9 +123,13 @@ export default function QuestsScreen() {
         showsVerticalScrollIndicator={false}
       >
 
-        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Built for you</Text>
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>
+          {allDone ? 'All quests done!' : 'Built for you'}
+        </Text>
         <Text style={[styles.sectionSub, { color: theme.textSecondary }]}>
-          Tap Start to make a quest active
+          {completedQuests.length > 0
+            ? `${completedQuests.length} of ${QUESTS.length} quests completed`
+            : 'Tap Start to make a quest active'}
         </Text>
 
         <ScrollView
@@ -216,4 +243,15 @@ const styles = StyleSheet.create({
   explorerLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 1, marginBottom: 6 },
   explorerType: { fontSize: 22, fontWeight: '700', marginBottom: 6 },
   explorerDesc: { fontSize: 14 },
+  // Quest complete state
+  completeState: { alignItems: 'center', paddingVertical: 8 },
+  completeTitle: { color: 'white', fontSize: 22, fontWeight: '800', marginBottom: 4 },
+  completeSubtitle: { color: 'rgba(255,255,255,0.75)', fontSize: 14, marginBottom: 20 },
+  claimBtn: {
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    backgroundColor: 'white',
+    borderRadius: 100,
+  },
+  claimBtnText: { fontSize: 15, fontWeight: '700', color: '#7C3AED' },
 });

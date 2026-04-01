@@ -52,6 +52,8 @@ const useStore = create((set, get) => ({
   visitorType: 'tourist', // 'tourist' | 'local'
   collection: [],         // checked-in landmarks with metadata
   activeQuestId: null,    // id from QUESTS
+  completedQuests: [],    // quest ids whose XP has been claimed
+  questBonusXP: 0,        // cumulative XP earned from quest completions
   hydrated: false,
 
   // ─── Auth state (not persisted — Supabase session handles it) ─────────────
@@ -110,28 +112,43 @@ const useStore = create((set, get) => ({
     await get()._persist();
   },
 
+  completeQuest: async (questId) => {
+    const quest = QUESTS.find((q) => q.id === questId);
+    if (!quest) return;
+    set((state) => ({
+      completedQuests: [...state.completedQuests, questId],
+      questBonusXP: state.questBonusXP + quest.xp,
+      activeQuestId: null,
+    }));
+    await get()._persist();
+  },
+
   // ─── Computed getters ─────────────────────────────────────────────────────
 
-  getTotalXP: () => get().collection.reduce((s, c) => s + (c.xpEarned || 150), 0),
+  getTotalXP: () =>
+    get().collection.reduce((s, c) => s + (c.xpEarned || 150), 0) + get().questBonusXP,
   getLevel: () => computeLevel(get().getTotalXP()),
   getCurrentXP: () => get().getTotalXP() % XP_PER_LEVEL,
   getStreak: () => computeStreak(get().collection),
 
   getActiveQuest: () => {
-    const { activeQuestId, collection, interests } = get();
-    // If no quest set, derive from first interest
+    const { activeQuestId, collection, interests, completedQuests } = get();
     const catMap = {
       architecture: 'q_arch', food: 'q_food', history: 'q_history',
       art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
     };
-    const id = activeQuestId || catMap[interests[0]] || 'q_arch';
-    const quest = QUESTS.find((q) => q.id === id) || QUESTS[0];
+    const preferredId = activeQuestId ?? catMap[interests[0]] ?? 'q_arch';
+    // Pick preferred if not yet completed, else find first uncompleted, else fallback
+    const quest =
+      QUESTS.find((q) => q.id === preferredId && !completedQuests.includes(q.id)) ||
+      QUESTS.find((q) => !completedQuests.includes(q.id)) ||
+      QUESTS[0];
     const progress = collection.filter((c) => c.category === quest.category).length;
     return { ...quest, progress: Math.min(progress, quest.target) };
   },
 
   getSuggestedQuests: () => {
-    const { activeQuestId, interests, collection } = get();
+    const { activeQuestId, interests, collection, completedQuests } = get();
     const catMap = {
       architecture: 'q_arch', food: 'q_food', history: 'q_history',
       art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
@@ -143,7 +160,7 @@ const useStore = create((set, get) => ({
       const bP = preferred.indexOf(b.id);
       return (aP === -1 ? 99 : aP) - (bP === -1 ? 99 : bP);
     });
-    return sorted.filter((q) => q.id !== activeQuestId).slice(0, 3).map((q) => ({
+    return sorted.filter((q) => q.id !== activeQuestId && !completedQuests.includes(q.id)).slice(0, 3).map((q) => ({
       ...q,
       progress: collection.filter((c) => c.category === q.category).length,
     }));
@@ -196,11 +213,11 @@ const useStore = create((set, get) => ({
   // ─── Persistence ──────────────────────────────────────────────────────────
 
   _persist: async () => {
-    const { hasOnboarded, userName, interests, visitorType, collection, activeQuestId } = get();
+    const { hasOnboarded, userName, interests, visitorType, collection, activeQuestId, completedQuests, questBonusXP } = get();
     try {
       await AsyncStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ hasOnboarded, userName, interests, visitorType, collection, activeQuestId }),
+        JSON.stringify({ hasOnboarded, userName, interests, visitorType, collection, activeQuestId, completedQuests, questBonusXP }),
       );
     } catch {}
   },
