@@ -131,10 +131,13 @@ export default function MapScreen() {
       expedition: {
         id: exp.id,
         title: exp.title,
+        created_by: exp.created_by,
         memberCount: exp.members?.length || 0,
         categories: exp.categories || [],
         dnaMatch: 90,
+        // Pass both display initials AND raw member objects for membership check
         members: (exp.members || []).map((m) => m.user_name?.[0] || '?'),
+        memberIds: (exp.members || []).map((m) => m.user_id),
         spotsLeft: Math.max(0, (exp.group_size || 4) - (exp.members?.length || 0)),
         meetingPoint: exp.landmark_name || 'Meeting point TBD',
         startsIn: 'Now',
@@ -344,6 +347,23 @@ export default function MapScreen() {
                 </Text>
                 <Text style={[styles.sheetOptSub, { color: theme.textSecondary }]}>
                   Post a landmark you discovered
+                </Text>
+              </View>
+            </Pressable>
+
+            <Pressable
+              style={[styles.sheetOption, { backgroundColor: '#F0F4FF' }]}
+              onPress={() => { closeSheet(); navigation.navigate('MyExpeditions'); }}
+            >
+              <View style={styles.sheetOptIcon}>
+                <Text style={{ fontSize: 24 }}>🗂️</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sheetOptTitle, { color: theme.textPrimary }]}>
+                  My Expeditions
+                </Text>
+                <Text style={[styles.sheetOptSub, { color: theme.textSecondary }]}>
+                  Manage active and past expeditions
                 </Text>
               </View>
             </Pressable>

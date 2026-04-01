@@ -259,6 +259,31 @@ export async function updateExpeditionStatus(expeditionId, status) {
   if (error) throw error;
 }
 
+/** All expeditions the user has joined (active + ended), newest first. */
+export async function fetchMyExpeditions(userId) {
+  const { data: memberships, error: me } = await supabase
+    .from('expedition_members')
+    .select('expedition_id')
+    .eq('user_id', userId);
+  if (me) throw me;
+
+  const ids = (memberships || []).map((m) => m.expedition_id);
+  if (!ids.length) return [];
+
+  const { data, error } = await supabase
+    .from('expeditions')
+    .select('*, expedition_members(user_id, user_name)')
+    .in('id', ids)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+
+  return (data || []).map((exp) => ({
+    ...exp,
+    members: exp.expedition_members ?? [],
+    isCreator: exp.created_by === userId,
+  }));
+}
+
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
 export async function fetchMessages(expeditionId) {
