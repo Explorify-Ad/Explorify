@@ -27,6 +27,10 @@ export default function QuestsScreen() {
   const setActiveQuest     = useStore((s) => s.setActiveQuest);
   const completeQuest      = useStore((s) => s.completeQuest);
   const completedQuests    = useStore((s) => s.completedQuests);
+  const getDailyChallenge  = useStore((s) => s.getDailyChallenge);
+  const claimDailyChallenge = useStore((s) => s.claimDailyChallenge);
+
+  const daily = getDailyChallenge();
 
   const activeQuest  = getActiveQuest();
   const suggested    = getSuggestedQuests();
@@ -131,6 +135,37 @@ export default function QuestsScreen() {
             ? `${completedQuests.length} of ${QUESTS.length} quests completed`
             : 'Tap Start to make a quest active'}
         </Text>
+
+        {/* ── Daily challenge ─────────────────────────────────────── */}
+        {daily && (
+          <View style={[
+            styles.dailyCard,
+            daily.claimed && { opacity: 0.55 },
+          ]}>
+            <View style={styles.dailyLeft}>
+              <Text style={styles.dailyLabel}>TODAY'S CHALLENGE</Text>
+              <Text style={styles.dailyTitle}>
+                {daily.emoji}  Visit {daily.target} {daily.category} spot{daily.target > 1 ? 's' : ''} today
+              </Text>
+              {/* Progress bar */}
+              <View style={styles.dailyTrack}>
+                <View style={[styles.dailyFill, { width: `${(daily.progress / daily.target) * 100}%` }]} />
+              </View>
+              <Text style={styles.dailyProgress}>
+                {daily.progress}/{daily.target} · +{daily.xpBonus} XP bonus
+              </Text>
+            </View>
+            {daily.achieved && !daily.claimed ? (
+              <Pressable style={styles.claimDailyBtn} onPress={claimDailyChallenge}>
+                <Text style={styles.claimDailyText}>Claim</Text>
+              </Pressable>
+            ) : daily.claimed ? (
+              <View style={styles.claimedBadge}>
+                <Text style={styles.claimedText}>✓</Text>
+              </View>
+            ) : null}
+          </View>
+        )}
 
         <ScrollView
           horizontal
@@ -243,6 +278,30 @@ const styles = StyleSheet.create({
   explorerLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 1, marginBottom: 6 },
   explorerType: { fontSize: 22, fontWeight: '700', marginBottom: 6 },
   explorerDesc: { fontSize: 14 },
+  // Daily challenge
+  dailyCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'white', borderRadius: 16, padding: 14, marginBottom: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07, shadowRadius: 8, elevation: 3,
+    borderWidth: 1, borderColor: 'rgba(245,166,35,0.2)',
+  },
+  dailyLeft: { flex: 1 },
+  dailyLabel: { fontSize: 10, fontWeight: '700', color: '#F5A623', letterSpacing: 1, marginBottom: 4 },
+  dailyTitle: { fontSize: 14, fontWeight: '600', color: '#1A1A2E', marginBottom: 10 },
+  dailyTrack: { height: 5, backgroundColor: 'rgba(0,0,0,0.07)', borderRadius: 3, marginBottom: 6, overflow: 'hidden' },
+  dailyFill: { height: '100%', backgroundColor: '#F5A623', borderRadius: 3 },
+  dailyProgress: { fontSize: 11, color: '#6B7280' },
+  claimDailyBtn: {
+    marginLeft: 12, paddingHorizontal: 14, paddingVertical: 8,
+    backgroundColor: '#F5A623', borderRadius: 100,
+  },
+  claimDailyText: { color: 'white', fontSize: 13, fontWeight: '700' },
+  claimedBadge: {
+    marginLeft: 12, width: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center',
+  },
+  claimedText: { color: 'white', fontSize: 16, fontWeight: '700' },
   // Quest complete state
   completeState: { alignItems: 'center', paddingVertical: 8 },
   completeTitle: { color: 'white', fontSize: 22, fontWeight: '800', marginBottom: 4 },
