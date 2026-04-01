@@ -132,6 +132,7 @@ export async function createExpedition(userId, userName, data) {
     .from('expeditions')
     .insert({
       title:         data.title,
+      description:   data.description  ?? '',
       created_by:    userId,
       creator_name:  userName,
       landmark_id:   data.landmarkId   ?? null,
@@ -140,6 +141,7 @@ export async function createExpedition(userId, userName, data) {
       landmark_lon:  data.landmarkLon  ?? null,
       categories:    data.categories   ?? [],
       group_size:    data.groupSize    ?? 4,
+      company_type:  data.companyType  ?? 'solo',
       duration:      data.duration     ?? '2hr',
       dna_only:      data.dnaOnly      ?? true,
     })

@@ -6,6 +6,8 @@ export default function GroupScreen({ navigation }) {
   const [inviteCode, setInviteCode] = useState('');
   const [group, setGroup] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [groupProfile, setGroupProfile] = useState(null);
+
 
   const handleCreateGroup = async () => {
     setLoading(true);
@@ -35,6 +37,23 @@ export default function GroupScreen({ navigation }) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (group?.id) {
+      const fetchGroupProfile = async () => {
+        try {
+          const response = await api.get(`/groups/${group.id}/preferences`);
+          setGroupProfile(response.data.data);
+        } catch (err) {
+          console.warn('Group profile fetch error:', err);
+        }
+      };
+      fetchGroupProfile();
+      const interval = setInterval(fetchGroupProfile, 5000); // Poll every 5s for new members
+      return () => clearInterval(interval);
+    }
+  }, [group?.id]);
+
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -74,6 +93,42 @@ export default function GroupScreen({ navigation }) {
           <Text style={styles.statusText}>
             The system is now combining the preferences and behavioral data of all members.
           </Text>
+
+          {groupProfile && (
+            <View style={styles.syncCard}>
+              <View style={styles.syncHeader}>
+                <Text style={styles.syncTitle}>Collective DNA Synced</Text>
+                <View style={styles.pulseDot} />
+              </View>
+              
+              <View style={styles.syncRow}>
+                <View style={styles.syncItem}>
+                  <Text style={styles.syncEmoji}>🐢</Text>
+                  <Text style={styles.syncLabel}>Pace</Text>
+                  <Text style={styles.syncVal}>{(groupProfile.walking_speed_kmh || 4.5).toFixed(1)} km/h</Text>
+                </View>
+                <View style={styles.syncItem}>
+                  <Text style={styles.syncEmoji}>♿</Text>
+                  <Text style={styles.syncLabel}>Access</Text>
+                  <Text style={styles.syncVal}>Level {groupProfile.accessibility_min || 0}+</Text>
+                </View>
+                <View style={styles.syncItem}>
+                  <Text style={styles.syncEmoji}>✨</Text>
+                  <Text style={styles.syncLabel}>Members</Text>
+                  <Text style={styles.syncVal}>{groupProfile.member_count || 1}</Text>
+                </View>
+              </View>
+              
+              <View style={styles.categoriesBox}>
+                <Text style={styles.catTitle}>Merged Interests</Text>
+                <View style={styles.catRow}>
+                  {(groupProfile.preferred_categories || []).slice(0, 3).map(cat => (
+                    <View key={cat} style={styles.catPill}><Text style={styles.catPillText}>{cat}</Text></View>
+                  ))}
+                </View>
+              </View>
+            </View>
+          )}
           
           <TouchableOpacity 
             style={styles.startRouteButton} 
@@ -81,6 +136,7 @@ export default function GroupScreen({ navigation }) {
           >
             <Text style={styles.buttonText}>🚶 Build Group Route</Text>
           </TouchableOpacity>
+
 
           <TouchableOpacity style={styles.leaveButton} onPress={() => setGroup(null)}>
             <Text style={styles.leaveText}>Leave Group</Text>
@@ -221,4 +277,27 @@ const styles = StyleSheet.create({
     color: '#FF6B6B',
     fontWeight: 'bold',
   },
+  syncCard: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  syncHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  syncTitle: { fontSize: 13, fontWeight: '700', color: '#64748B', textTransform: 'uppercase' },
+  pulseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#10B981' },
+  syncRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
+  syncItem: { alignItems: 'center', flex: 1 },
+  syncEmoji: { fontSize: 20, marginBottom: 4 },
+  syncLabel: { fontSize: 10, color: '#94A3B8', marginBottom: 2 },
+  syncVal: { fontSize: 13, fontWeight: '700', color: '#1E293B' },
+  categoriesBox: { borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingTop: 12 },
+  catTitle: { fontSize: 10, fontWeight: '700', color: '#94A3B8', marginBottom: 8 },
+  catRow: { flexDirection: 'row', gap: 6 },
+  catPill: { backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100, borderWidth: 1, borderColor: '#E2E8F0' },
+  catPillText: { fontSize: 10, fontWeight: '600', color: '#64748B' },
 });
+

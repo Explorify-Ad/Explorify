@@ -1,5 +1,6 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+
 
 /**
  * Home screen - main landing page of the app.
@@ -59,7 +60,26 @@ export default function HomeScreen({ navigation }) {
         >
           <Text style={styles.buttonText}>👤 Profile</Text>
         </TouchableOpacity>
+
+        {/* Community Highlight */}
+        <TouchableOpacity
+          style={styles.communityCard}
+          onPress={() => navigation.navigate('Quests')}
+        >
+          <LinearGradient
+            colors={['#7C3AED', '#4F46E5']}
+            style={styles.communityInner}
+          >
+            <View style={styles.communityHeader}>
+              <Text style={styles.communityTitle}>Community Hub</Text>
+              <View style={styles.liveBadge}><Text style={styles.liveText}>LIVE</Text></View>
+            </View>
+            <Text style={styles.communitySub}>Join 1.2k explorers in the "Dublin Foodies" challenge.</Text>
+            <View style={styles.joinBtn}><Text style={styles.joinBtnText}>Discover Communities</Text></View>
+          </LinearGradient>
+        </TouchableOpacity>
       </View>
+
     </View>
   );
 }
@@ -98,4 +118,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
+  communityCard: { marginTop: 12, borderRadius: 20, overflow: 'hidden' },
+  communityInner: { padding: 20 },
+  communityHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  communityTitle: { color: 'white', fontSize: 18, fontWeight: '800' },
+  liveBadge: { backgroundColor: '#EF4444', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
+  liveText: { color: 'white', fontSize: 10, fontWeight: '900' },
+  communitySub: { color: 'rgba(255,255,255,0.8)', fontSize: 13, marginBottom: 16, lineHeight: 18 },
+  joinBtn: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10 },
+  joinBtnText: { color: 'white', fontSize: 13, fontWeight: '700' },
 });
+

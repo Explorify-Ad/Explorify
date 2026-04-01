@@ -23,6 +23,15 @@ const CATEGORIES = [
 
 const DURATIONS = ['30min', '1hr', '2hr', 'Half Day', 'Custom'];
 
+const COMPANY_TYPES = [
+  { id: 'solo',      label: 'Solo',      icon: '🧍' },
+  { id: 'duo',       label: 'Duo',       icon: '👫' },
+  { id: 'family',    label: 'Family',    icon: '👨‍👩‍👧‍👦' },
+  { id: 'friends',   label: 'Friends',   icon: '👥' },
+  { id: 'community', label: 'Community', icon: '🏛️' },
+];
+
+
 export default function CreateExpeditionScreen() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -33,13 +42,16 @@ export default function CreateExpeditionScreen() {
   const landmarks = route.params?.landmarks ?? [];
 
   const [title, setTitle]               = useState('');
+  const [description, setDescription]   = useState('');
   const [selected, setSelected]         = useState(new Set());
   const [groupSize, setGroupSize]       = useState(4);
+  const [companyType, setCompanyType]   = useState('solo');
   const [duration, setDuration]         = useState('2hr');
   const [dnaOnly, setDnaOnly]           = useState(true);
   const [launching, setLaunching]       = useState(false);
   const [meetingPoint, setMeetingPoint] = useState(null);
   const [pickerOpen, setPickerOpen]     = useState(false);
+
 
   const toggle = (id) => {
     const next = new Set(selected);
@@ -55,8 +67,10 @@ export default function CreateExpeditionScreen() {
     try {
       const exp = await createExpedition(authUser.id, authUser.name, {
         title,
+        description,
         categories: [...selected],
         groupSize,
+        companyType,
         duration,
         dnaOnly,
         landmarkId:   meetingPoint?.id   ?? null,
@@ -107,7 +121,17 @@ export default function CreateExpeditionScreen() {
           onChangeText={(t) => setTitle(t.slice(0, 60))}
           maxLength={60}
         />
+        <TextInput
+          style={[styles.descInput, { color: theme.textPrimary }]}
+          placeholder="What's the vibe? (e.g. Chill coffee walk, Art hunting...)"
+          placeholderTextColor={theme.textSecondary}
+          value={description}
+          onChangeText={(t) => setDescription(t.slice(0, 140))}
+          maxLength={140}
+          multiline
+        />
         <Text style={[styles.charCount, { color: theme.textSecondary }]}>{title.length} / 60</Text>
+
 
         {/* Theme picker */}
         <Text style={[styles.label, { color: theme.textPrimary }]}>What are you exploring?</Text>
@@ -178,7 +202,36 @@ export default function CreateExpeditionScreen() {
           </View>
         </Modal>
 
+        {/* Company Type */}
+        <Text style={[styles.label, { color: theme.textPrimary }]}>Who are you with?</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.companyRow}>
+          {COMPANY_TYPES.map((ct) => (
+            <Pressable
+              key={ct.id}
+              onPress={() => {
+                setCompanyType(ct.id);
+                // Adjust group size baseline based on company type
+                if (ct.id === 'solo') setGroupSize(1);
+                else if (ct.id === 'duo') setGroupSize(2);
+                else if (ct.id === 'family') setGroupSize(4);
+                else if (ct.id === 'community') setGroupSize(8);
+              }}
+              style={[styles.companyChip,
+                companyType === ct.id
+                  ? { backgroundColor: CORAL, borderColor: CORAL }
+                  : { backgroundColor: 'white', borderColor: 'rgba(0,0,0,0.1)' }]}
+            >
+              <Text style={{ fontSize: 16, marginRight: 6 }}>{ct.icon}</Text>
+              <Text style={[styles.companyText,
+                { color: companyType === ct.id ? 'white' : theme.textPrimary }]}>
+                {ct.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
         {/* Group size */}
+
         <Text style={[styles.label, { color: theme.textPrimary }]}>Group Size</Text>
         <View style={styles.stepperRow}>
           <Pressable
@@ -274,7 +327,9 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 16, paddingTop: 20 },
 
   titleInput: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
+  descInput: { fontSize: 16, marginBottom: 8, minHeight: 40 },
   charCount: { fontSize: 11, textAlign: 'right', marginBottom: 24 },
+
 
   label: { fontSize: 14, fontWeight: '600', marginBottom: 12 },
 
@@ -321,6 +376,17 @@ const styles = StyleSheet.create({
   stepCount: { alignItems: 'center' },
   stepNum: { fontSize: 40, fontWeight: '700' },
   stepSub: { fontSize: 12 },
+
+  companyRow: { marginBottom: 24 },
+  companyChip: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14,
+    borderWidth: 1, marginRight: 10,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05, shadowRadius: 2, elevation: 1,
+  },
+  companyText: { fontSize: 14, fontWeight: '600' },
+
 
   durationRow: { marginBottom: 24 },
   durationChip: {

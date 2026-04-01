@@ -131,6 +131,26 @@ export default function LandmarkDetailScreen() {
             Discover the story behind this <Text style={{ fontWeight: '600' }}>{category.toLowerCase()}</Text> landmark.
           </Text>
 
+          {/* Adaptive Reasons */}
+          {landmark.reasons && landmark.reasons.length > 0 && (
+            <View style={styles.reasonsContainer}>
+              <Text style={styles.reasonsTitle}>Why this match?</Text>
+              <View style={styles.reasonsRow}>
+                {landmark.reasons.map((r, i) => (
+                  <View key={i} style={styles.reasonBadge}>
+                    <Text style={styles.reasonText}>✨ {r}</Text>
+                  </View>
+                ))}
+                {landmark.score && (
+                  <View style={[styles.scoreBadge, { backgroundColor: `${theme.primary}15` }]}>
+                    <Text style={[styles.scoreText, { color: theme.primary }]}>{landmark.score}% Match</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
+
           <View style={styles.proximitySection}>
             <View style={styles.proximityRow}>
               <View style={styles.proximityLeft}>
@@ -198,4 +218,31 @@ const styles = StyleSheet.create({
   celebrationEmoji: { fontSize: 56, marginBottom: 12 },
   celebrationTitle: { fontSize: 20, fontWeight: '700', marginBottom: 4 },
   celebrationSub: { fontSize: 14 },
+
+  reasonsContainer: {
+    marginBottom: 20,
+    backgroundColor: '#F9FAFB',
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  reasonsTitle: { fontSize: 11, fontWeight: '700', color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 8, letterSpacing: 0.5 },
+  reasonsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  reasonBadge: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  reasonText: { fontSize: 12, fontWeight: '600', color: '#374151' },
+  scoreBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  scoreText: { fontSize: 12, fontWeight: '700' },
 });
+

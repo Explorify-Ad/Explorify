@@ -21,14 +21,18 @@ export default function ExpeditionPreviewScreen() {
   const expedition = route.params?.expedition ?? {
     id: '1',
     title: 'Art Nouveau Morning Walk',
+    description: 'A beautiful morning stroll through historic architecture.',
     leader: { name: 'Alex Chen', type: 'Heritage Seeker', level: 18, avatar: 'A' },
     categories: ['Architecture', 'History'],
+    companyType: 'friends',
     dnaMatch: 94,
     members: ['A', 'B', 'C'],
     spotsLeft: 2,
     meetingPoint: 'Central Plaza',
     startsIn: '14 min',
+    reasons: ['Architectural Gems', 'Quiet Route'],
   };
+
 
   const authUser = useStore((s) => s.authUser);
   const [joining, setJoining] = useState(false);
@@ -92,8 +96,14 @@ export default function ExpeditionPreviewScreen() {
           </View>
         </View>
 
-        {/* Title */}
+        {/* Title & Description */}
         <Text style={[styles.title, { color: theme.textPrimary }]}>{expedition.title}</Text>
+        {expedition.description ? (
+          <Text style={[styles.description, { color: theme.textSecondary }]}>
+            {expedition.description}
+          </Text>
+        ) : null}
+
 
         {/* Category pills */}
         <View style={styles.pillRow}>
@@ -102,11 +112,40 @@ export default function ExpeditionPreviewScreen() {
           ))}
         </View>
 
-        {/* DNA match */}
-        <View style={styles.dnaPill}>
-          <View style={styles.dnaDot} />
-          <Text style={styles.dnaText}>{expedition.dnaMatch}% match for you</Text>
+        {/* DNA match & Company Type */}
+        <View style={styles.dnaRow}>
+          <View style={styles.dnaPill}>
+            <View style={styles.dnaDot} />
+            <Text style={styles.dnaText}>{expedition.dnaMatch}% match for you</Text>
+          </View>
+
+          {expedition.companyType && (
+            <View style={[styles.companyBadge, { backgroundColor: `${CORAL}15` }]}>
+              <Text style={{ fontSize: 12, marginRight: 4 }}>
+                {expedition.companyType === 'family' ? '👨‍👩‍👧‍👦' :
+                 expedition.companyType === 'friends' ? '👥' :
+                 expedition.companyType === 'duo' ? '👫' :
+                 expedition.companyType === 'community' ? '🏛️' : '🧍'}
+              </Text>
+              <Text style={[styles.companyBadgeText, { color: CORAL }]}>
+                {expedition.companyType.charAt(0).toUpperCase() + expedition.companyType.slice(1)}
+              </Text>
+            </View>
+          )}
         </View>
+
+        {/* Adaptive Reasons */}
+        {expedition.reasons && expedition.reasons.length > 0 && (
+          <View style={styles.reasonsContainer}>
+            {expedition.reasons.map((reason, idx) => (
+              <View key={idx} style={styles.reasonItem}>
+                <View style={[styles.reasonDot, { backgroundColor: TEAL }]} />
+                <Text style={[styles.reasonText, { color: theme.textPrimary }]}>{reason}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
 
         {/* Members */}
         <View style={styles.membersRow}>
@@ -196,14 +235,31 @@ const styles = StyleSheet.create({
   levelPos: { position: 'absolute', bottom: -4, right: -8 },
   leaderName: { fontSize: 15, fontWeight: '600' },
   leaderType: { fontSize: 12, marginTop: 1 },
-  title: { fontSize: 18, fontWeight: '700', marginBottom: 10 },
+  title: { fontSize: 20, fontWeight: '700', marginBottom: 4 },
+  description: { fontSize: 14, lineHeight: 18, marginBottom: 12 },
   pillRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  dnaRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   dnaPill: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: 'rgba(245,166,35,0.15)',
     paddingHorizontal: 12, paddingVertical: 6,
-    borderRadius: 100, alignSelf: 'flex-start', marginBottom: 12,
+    borderRadius: 100,
   },
+  companyBadge: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 10,
+  },
+  companyBadgeText: { fontSize: 12, fontWeight: '700' },
+  reasonsContainer: {
+    backgroundColor: 'rgba(13,148,136,0.05)',
+    borderRadius: 12, padding: 10, marginBottom: 16,
+    borderWidth: 1, borderColor: 'rgba(13,148,136,0.1)',
+  },
+  reasonItem: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  reasonDot: { width: 5, height: 5, borderRadius: 2.5 },
+  reasonText: { fontSize: 12, fontWeight: '500' },
+
   dnaDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#F5A623' },
   dnaText: { fontSize: 13, fontWeight: '600', color: '#F5A623' },
   membersRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },

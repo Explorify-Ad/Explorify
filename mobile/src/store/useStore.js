@@ -52,12 +52,16 @@ const useStore = create((set, get) => ({
   interests: [],          // array of category ids from onboarding
   collection: [],         // checked-in landmarks with metadata
   activeQuestId: null,    // id from QUESTS
-  preferences: {          // Adaptive preferences from backend
+  landmarks: [],          // Current map recommendations
+  preferences: {
     walking_speed_kmh: 4.5,
     category_dwell_multipliers: {},
     visitor_type: 'tourist',
+    accessibility_min: 0,
+    group_context: 'solo',
     abandonment_streak: 0,
   },
+
   quests: [],             // User quests from backend
   communities: [],        // All available communities
   userBadges: [],         // Awarded badges
@@ -89,6 +93,27 @@ const useStore = create((set, get) => ({
     }
   },
 
+  fetchRecommendations: async (lat, lng, groupId = null) => {
+    try {
+      const api = (await import('../services/api')).default;
+      const { preferences } = get();
+      const response = await api.get('/landmarks/recommendations', {
+        params: {
+          lat,
+          lng,
+          group_id: groupId,
+          preferences: JSON.stringify(preferences)
+        }
+      });
+      set({ landmarks: response.data.data });
+      return response.data.data;
+    } catch (err) {
+      console.warn('fetchRecommendations error:', err);
+      return [];
+    }
+  },
+
+
   joinCommunity: async (communityId) => {
     try {
       const api = (await import('../services/api')).default;
@@ -102,7 +127,23 @@ const useStore = create((set, get) => ({
 
   setPreferences: (prefs) => {
     set({ preferences: { ...get().preferences, ...prefs } });
+    get()._persist();
   },
+
+  trackPace: async (distanceKm, durationMin) => {
+    try {
+      const api = (await import('../services/api')).default;
+      await api.post('/routes/track-pace', { 
+        distance_km: distanceKm, 
+        duration_min: durationMin 
+      });
+      // Optionally re-sync to get the updated moving average
+      await get().syncFromSupabase();
+    } catch (err) {
+      console.warn('trackPace error:', err);
+    }
+  },
+
 
   setAuthUser: (user, token) => {
     set({

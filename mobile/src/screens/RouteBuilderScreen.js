@@ -51,6 +51,8 @@ export default function RouteBuilderScreen({ route, navigation }) {
     { id: 'local', label: '🏠 Local' },
   ];
 
+  const preferences = useStore((s) => s.preferences);
+
   const handleGenerateRoute = async () => {
     setLoading(true);
     try {
@@ -60,14 +62,26 @@ export default function RouteBuilderScreen({ route, navigation }) {
         time_budget_min: 120,
         group_id: group_id,
         preferences: {
+          ...preferences,
           group_context: groupContext,
           visitor_type: visitorType,
           current_hour: new Date().getHours(),
           battery_level: Math.round(batteryLevel * 100),
         }
       });
-      console.log('Generated Route:', response.data);
-      Alert.alert('Success', `Route generated for ${visitorType} with ${groupContext.replace('_', ' ')} context${group_id ? ' (Group Mode)' : ''}.`);
+      
+      const generatedRoute = response.data.data || response.data;
+      const landmarks = generatedRoute.landmarks || [];
+      const totalTime = generatedRoute.total_time_min || 120;
+      
+      if (landmarks.length > 0) {
+        navigation.navigate('Map', { 
+          generatedRoute: landmarks,
+          context: `${visitorType} Route (${totalTime} min)`
+        });
+      } else {
+        Alert.alert('No Route Found', 'Try adjusting your preferences or time budget.');
+      }
     } catch (err) {
       console.error(err);
       Alert.alert('Error', 'Failed to generate route. Please try again.');
@@ -75,6 +89,7 @@ export default function RouteBuilderScreen({ route, navigation }) {
       setLoading(false);
     }
   };
+
 
   return (
     <ScrollView contentContainerStyle={styles.container}>

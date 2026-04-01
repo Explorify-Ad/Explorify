@@ -221,6 +221,48 @@ function buildHTML(lat, lon, landmarks, expeditions = []) {
       type: 'mapMove', lat: c.lat, lon: c.lng, zoom: map.getZoom()
     }));
   });
+
+  window.drawRoute = function(waypoints) {
+    if (!waypoints || waypoints.length < 2) {
+      if (map.getLayer('route')) map.removeLayer('route');
+      if (map.getSource('route')) map.removeSource('route');
+      return;
+    }
+    
+    if (map.getLayer('route')) map.removeLayer('route');
+    if (map.getSource('route')) map.removeSource('route');
+
+    map.addSource('route', {
+      type: 'geojson',
+      data: {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'LineString',
+          coordinates: waypoints.map(function(w) { return [w.lon || w.lng, w.lat]; })
+        }
+      }
+    });
+
+    map.addLayer({
+      id: 'route',
+      type: 'line',
+      source: 'route',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: {
+        'line-color': '#FF6B6B',
+        'line-width': 6,
+        'line-opacity': 0.85
+      }
+    });
+
+    try {
+      var bounds = new tt.LngLatBounds();
+      waypoints.forEach(function(w) { bounds.extend([w.lon || w.lng, w.lat]); });
+      map.fitBounds(bounds, { padding: 60, duration: 1000 });
+    } catch(e) {}
+  };
+
 </script>
 </body>
 </html>`;
@@ -245,6 +287,17 @@ const TomTomMap = forwardRef(function TomTomMap(
         `map.flyTo({ center: [${newLon}, ${newLat}], zoom: ${zoom}, essential: true }); true;`,
       );
     },
+    drawRoute: (waypoints) => {
+      webRef.current?.injectJavaScript(
+        `window.drawRoute(${JSON.stringify(waypoints)}); true;`,
+      );
+    },
+    clearRoute: () => {
+      webRef.current?.injectJavaScript(
+        `window.drawRoute(null); true;`,
+      );
+    },
+
   }));
 
   const handleMessage = (event) => {

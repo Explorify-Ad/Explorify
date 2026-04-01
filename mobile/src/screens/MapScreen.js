@@ -7,17 +7,22 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TopHUD } from '../components/explorify/TopHUD';
 import TomTomMap from '../components/explorify/TomTomMap';
 import { useTheme } from '../context/ThemeContext';
 import { getCurrentLocation } from '../services/location';
-import { fetchAllLandmarks, fetchActiveExpeditions } from '../services/supabase';
+import { fetchActiveExpeditions } from '../services/supabase';
+import api from '../services/api';
 import useStore from '../store/useStore';
+
 
 export default function MapScreen() {
   const navigation = useNavigation();
+  const route = useRoute();
+
   const insets = useSafeAreaInsets();
   const { theme, setMode } = useTheme();
 
@@ -30,6 +35,8 @@ export default function MapScreen() {
   const [expeditions, setExpeditions] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [context, setContext] = useState(null);
+
 
   const mapRef = useRef(null);
 
@@ -51,13 +58,18 @@ export default function MapScreen() {
     }
     setUserLocation(loc);
     try {
-      const [results, exps] = await Promise.all([
-        fetchAllLandmarks(loc.latitude, loc.longitude),
+      const fetchRecommendations = useStore.getState().fetchRecommendations;
+      const [results, exps, ctxResponse] = await Promise.all([
+        fetchRecommendations(loc.latitude, loc.longitude),
         fetchActiveExpeditions(loc.latitude, loc.longitude),
+        api.get('/landmarks/context', { params: { lat: loc.latitude, lng: loc.longitude } }).catch(() => ({ data: { data: null } }))
       ]);
       setLandmarks(results || []);
       setExpeditions(exps || []);
+      if (ctxResponse.data.data) setContext(ctxResponse.data.data);
     } catch (e) {
+
+
       console.warn('MapScreen data load error:', e?.message || e);
     } finally {
       setLoading(false);
@@ -125,27 +137,60 @@ export default function MapScreen() {
   const goToExpedition = (expeditionId) => {
     const exp = expeditions.find((e) => String(e.id) === String(expeditionId));
     if (!exp) return;
+    
+    // Adaptive logic: DNA Match based on user interests
+    const userInterests = authUser?.interests || [];
+    const matchCount = (exp.categories || []).filter(c => userInterests.includes(c)).length;
+    const dnaMatch = exp.categories?.length > 0 ? Math.round((matchCount / exp.categories.length) * 100) : 100;
+    
     navigation.navigate('ExpeditionPreview', {
       expedition: {
         id: exp.id,
         title: exp.title,
+        description: exp.description || 'Join this exciting expedition!',
+        companyType: exp.company_type || 'friends',
         memberCount: exp.members?.length || 0,
         categories: exp.categories || [],
-        dnaMatch: 90,
+        dnaMatch: dnaMatch || 85,
         members: (exp.members || []).map((m) => m.user_name?.[0] || '?'),
         spotsLeft: Math.max(0, (exp.group_size || 4) - (exp.members?.length || 0)),
         meetingPoint: exp.landmark_name || 'Meeting point TBD',
         startsIn: 'Now',
         landmark: exp.landmark_name ? { name: exp.landmark_name } : null,
         leader: { name: exp.creator_name, type: 'Explorer', level: 1, avatar: exp.creator_name?.[0] || 'E' },
+        reasons: exp.categories?.slice(0, 2).map(c => `${c} Expert Match`) || ['Local Discovery']
       },
     });
   };
+
 
   // Expedition (if any) that the current user has joined
   const myExpedition = expeditions.find((e) =>
     e.members?.some((m) => m.user_id === authUser?.id),
   );
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    if (myExpedition && userLocation) {
+      const waypoints = [
+        { lat: userLocation.latitude, lon: userLocation.longitude },
+        { lat: myExpedition.landmark_lat, lon: myExpedition.landmark_lon }
+      ];
+      mapRef.current.drawRoute(waypoints);
+    } else if (route.params?.generatedRoute) {
+      const landmarks = route.params.generatedRoute;
+      const waypoints = [
+        ...(userLocation ? [{ lat: userLocation.latitude, lon: userLocation.longitude }] : []),
+        ...landmarks.map(l => ({ lat: parseFloat(l.latitude), lon: parseFloat(l.longitude) }))
+      ];
+      mapRef.current.drawRoute(waypoints);
+    } else {
+      mapRef.current.clearRoute();
+    }
+  }, [myExpedition, userLocation, route.params?.generatedRoute]);
+
+
 
   const progress = activeQuest?.progress ?? 0;
   const target = activeQuest?.target ?? 0;
@@ -188,6 +233,35 @@ export default function MapScreen() {
       )}
 
       <TopHUD />
+
+      {context && (
+        <View style={[styles.contextHUD, { top: insets.top + 80 }]}>
+          <View style={styles.contextItem}>
+            <Text style={styles.contextEmoji}>
+              {context.weather?.isRaining ? '🌧️' : context.weather?.isClear ? '☀️' : '🌥️'}
+            </Text>
+            <View>
+              <Text style={styles.contextTitle}>{context.weather?.description || 'Loading...'}</Text>
+              <Text style={styles.contextSub}>
+                {context.weather?.isRaining ? 'Indoor venues boosted' : 'Scenic spots prioritized'}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.contextDivider} />
+          <View style={styles.contextItem}>
+            <Text style={styles.contextEmoji}>
+              {context.timeSlot === 'Morning' ? '🌅' : context.timeSlot === 'Evening' ? '🌇' : '🏙️'}
+            </Text>
+            <View>
+              <Text style={styles.contextTitle}>{context.timeSlot} Slot</Text>
+              <Text style={styles.contextSub}>
+                {context.timeSlot === 'Evening' ? 'Lighting & Vibes score+' : 'Activity match+'}
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
 
       <Animated.View
         style={[
@@ -495,4 +569,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-});
+  contextHUD: {
+    position: 'absolute',
+    left: 14, right: 14,
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 18,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+    zIndex: 10,
+  },
+  contextItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  contextEmoji: { fontSize: 20 },
+  contextTitle: { fontSize: 12, fontWeight: '700', color: '#374151' },
+  contextSub: { fontSize: 9, color: '#9CA3AF', marginTop: 1 },
+  contextDivider: {
+    width: 1, height: '70%',
+    backgroundColor: '#F3F4F6',
+    marginHorizontal: 10,
+    alignSelf: 'center',
+  },
+});
