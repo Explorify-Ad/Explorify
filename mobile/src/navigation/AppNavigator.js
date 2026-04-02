@@ -3,7 +3,7 @@ import { View, ActivityIndicator, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Map, Target, Briefcase, User } from 'lucide-react-native';
+import { Map, Target, Briefcase, User, Route } from 'lucide-react-native';
 
 import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
@@ -12,12 +12,14 @@ import MapScreen from '../screens/MapScreen';
 import QuestScreen from '../screens/QuestScreen';
 import CollectionScreen from '../screens/CollectionScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import RouteBuilderScreen from '../screens/RouteBuilderScreen';
 import LandmarkDetailScreen from '../screens/LandmarkDetailScreen';
 import NearbyScreen from '../screens/NearbyScreen';
 import CreateExpeditionScreen from '../screens/CreateExpeditionScreen';
 import ExpeditionPreviewScreen from '../screens/ExpeditionPreviewScreen';
 import ExpeditionChatScreen from '../screens/ExpeditionChatScreen';
 import GroupScreen from '../screens/GroupScreen';
+import MyExpeditionsScreen from '../screens/MyExpeditionsScreen';
 import { useTheme } from '../context/ThemeContext';
 import useStore from '../store/useStore';
 import supabase from '../services/supabase';
@@ -47,16 +49,17 @@ function TabNavigator() {
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarLabelStyle: { fontSize: 11, fontWeight: '500', marginTop: 2 },
         tabBarIcon: ({ focused, color }) => {
-          const icons = { Map, Quests: Target, Collection: Briefcase, Profile: User };
+          const icons = { Map, Quests: Target, Route, Collection: Briefcase, Profile: User };
           const Icon = icons[route.name];
           return <Icon size={22} color={color} strokeWidth={focused ? 2.5 : 1.8} />;
         },
       })}
     >
-      <Tab.Screen name="Map" component={MapScreen} />
-      <Tab.Screen name="Quests" component={QuestScreen} />
+      <Tab.Screen name="Map"        component={MapScreen} />
+      <Tab.Screen name="Quests"     component={QuestsScreen} />
+      <Tab.Screen name="Route"      component={RouteBuilderScreen} options={{ tabBarLabel: 'Route' }} />
       <Tab.Screen name="Collection" component={CollectionScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="Profile"    component={ProfileScreen} />
     </Tab.Navigator>
   );
 }
@@ -116,8 +119,8 @@ export default function AppNavigator() {
     ? 'Onboarding'
     : 'Main';
 
-  const isConfigPlaceholder = 
-    !process.env.EXPO_PUBLIC_SUPABASE_URL || 
+  const isConfigPlaceholder =
+    !process.env.EXPO_PUBLIC_SUPABASE_URL ||
     process.env.EXPO_PUBLIC_SUPABASE_URL.includes('your-project') ||
     !process.env.EXPO_PUBLIC_TOMTOM_API_KEY;
 
@@ -181,6 +184,10 @@ export default function AppNavigator() {
           name="Group"
           component={GroupScreen}
           options={{ title: 'Group Travel' }}
+        />
+        <Stack.Screen
+          name="MyExpeditions"
+          component={MyExpeditionsScreen}
         />
       </Stack.Navigator>
     </NavigationContainer>

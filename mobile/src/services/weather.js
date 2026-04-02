@@ -22,11 +22,19 @@ export const getCurrentWeather = async (lat, lon) => {
     },
   });
 
+  const temp      = response.data.main.temp;
+  const windSpeed = response.data.wind.speed;
+  const main      = response.data.weather[0].main;
+
   return {
-    temp: response.data.main.temp,
+    temp,
     description: response.data.weather[0].description,
-    icon: response.data.weather[0].icon,
-    isRaining: response.data.weather[0].main === 'Rain',
-    windSpeed: response.data.wind.speed,
+    icon:        response.data.weather[0].icon,
+    windSpeed,
+    isRaining: main === 'Rain' || main === 'Drizzle' || main === 'Thunderstorm',
+    isCold:    temp < 8,
+    isHot:     temp > 25,
+    isWindy:   windSpeed > 6,
+    isClear:   (main === 'Clear' || main === 'Clouds') && temp >= 12 && temp <= 24 && windSpeed <= 4,
   };
 };

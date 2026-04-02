@@ -17,6 +17,7 @@ import { getCurrentLocation } from '../services/location';
 import { fetchActiveExpeditions } from '../services/supabase';
 import api from '../services/api';
 import useStore from '../store/useStore';
+import useBattery from '../hooks/useBattery';
 
 
 export default function MapScreen() {
@@ -29,6 +30,7 @@ export default function MapScreen() {
   const getActiveQuest = useStore((s) => s.getActiveQuest);
   const authUser = useStore((s) => s.authUser);
   const activeQuest = getActiveQuest();
+  const { tier: batteryTier, batteryLevel, isCharging } = useBattery();
 
   const [showSheet, setShowSheet] = useState(false);
   const [landmarks, setLandmarks] = useState([]);
@@ -137,22 +139,26 @@ export default function MapScreen() {
   const goToExpedition = (expeditionId) => {
     const exp = expeditions.find((e) => String(e.id) === String(expeditionId));
     if (!exp) return;
-    
+
     // Adaptive logic: DNA Match based on user interests
     const userInterests = authUser?.interests || [];
     const matchCount = (exp.categories || []).filter(c => userInterests.includes(c)).length;
     const dnaMatch = exp.categories?.length > 0 ? Math.round((matchCount / exp.categories.length) * 100) : 100;
-    
+
     navigation.navigate('ExpeditionPreview', {
       expedition: {
         id: exp.id,
         title: exp.title,
         description: exp.description || 'Join this exciting expedition!',
         companyType: exp.company_type || 'friends',
+        created_by: exp.created_by,
         memberCount: exp.members?.length || 0,
         categories: exp.categories || [],
+        dnaMatch: 90,
+        // Pass both display initials AND raw member objects for membership check
         dnaMatch: dnaMatch || 85,
         members: (exp.members || []).map((m) => m.user_name?.[0] || '?'),
+        memberIds: (exp.members || []).map((m) => m.user_id),
         spotsLeft: Math.max(0, (exp.group_size || 4) - (exp.members?.length || 0)),
         meetingPoint: exp.landmark_name || 'Meeting point TBD',
         startsIn: 'Now',
@@ -262,6 +268,20 @@ export default function MapScreen() {
         </View>
       )}
 
+
+      {/* Battery warning banner — only shown when not charging and tier is low/critical */}
+      {!isCharging && (batteryTier === 'low' || batteryTier === 'critical') && (
+        <View style={[
+          styles.batteryBanner,
+          { backgroundColor: batteryTier === 'critical' ? '#DC2626' : '#D97706' },
+        ]}>
+          <Text style={styles.batteryText}>
+            {batteryTier === 'critical'
+              ? `Battery critically low (${Math.round(batteryLevel * 100)}%) — routes limited to 30 min`
+              : `Battery low (${Math.round(batteryLevel * 100)}%) — routes capped at 1 hour`}
+          </Text>
+        </View>
+      )}
 
       <Animated.View
         style={[
@@ -406,6 +426,23 @@ export default function MapScreen() {
               </View>
             </Pressable>
 
+            <Pressable
+              style={[styles.sheetOption, { backgroundColor: '#F0F4FF' }]}
+              onPress={() => { closeSheet(); navigation.navigate('MyExpeditions'); }}
+            >
+              <View style={styles.sheetOptIcon}>
+                <Text style={{ fontSize: 24 }}>🗂️</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sheetOptTitle, { color: theme.textPrimary }]}>
+                  My Expeditions
+                </Text>
+                <Text style={[styles.sheetOptSub, { color: theme.textSecondary }]}>
+                  Manage active and past expeditions
+                </Text>
+              </View>
+            </Pressable>
+
             <Pressable onPress={closeSheet} style={styles.cancelBtn}>
               <Text style={[styles.cancelText, { color: theme.textSecondary }]}>
                 Cancel
@@ -434,6 +471,22 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  batteryBanner: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 88,           // below TopHUD
+    paddingVertical: 7,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  batteryText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   questStrip: {
     position: 'absolute',
@@ -598,4 +651,4 @@ const styles = StyleSheet.create({
     marginHorizontal: 10,
     alignSelf: 'center',
   },
-});
+});
