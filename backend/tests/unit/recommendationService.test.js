@@ -23,7 +23,7 @@ describe('RecommendationService.calculateScore', () => {
   const userPoints = 1000; // Regular user
 
   test('should give unvisited bonus', () => {
-    const scoreWithVisited = recommendationService.calculateScore(
+    const { score: scoreWithVisited } = recommendationService.calculateScore(
       baseLandmark,
       basePreferences,
       null,
@@ -31,7 +31,7 @@ describe('RecommendationService.calculateScore', () => {
       currentHour,
       userPoints
     );
-    const scoreWithoutVisited = recommendationService.calculateScore(
+    const { score: scoreWithoutVisited } = recommendationService.calculateScore(
       baseLandmark,
       basePreferences,
       null,
@@ -47,7 +47,7 @@ describe('RecommendationService.calculateScore', () => {
 
   test('should give category preference match bonus', () => {
     const prefs = { ...basePreferences, preferred_categories: ['culture'] };
-    const score = recommendationService.calculateScore(
+    const { score } = recommendationService.calculateScore(
       baseLandmark,
       prefs,
       null,
@@ -61,7 +61,7 @@ describe('RecommendationService.calculateScore', () => {
 
   test('should handle Time-of-Day Adaptation: Morning', () => {
     const morningLandmark = { ...baseLandmark, tags: ['morning-vibe'] };
-    const scoreMorning = recommendationService.calculateScore(
+    const { score: scoreMorning } = recommendationService.calculateScore(
       morningLandmark,
       basePreferences,
       null,
@@ -72,7 +72,7 @@ describe('RecommendationService.calculateScore', () => {
     // Base 50 + Unvisited 15 + Morning tag 15 + Access 10 + Points 2 = 92
     expect(scoreMorning).toBe(92);
 
-    const scoreEvening = recommendationService.calculateScore(
+    const { score: scoreEvening } = recommendationService.calculateScore(
       morningLandmark,
       basePreferences,
       null,
@@ -87,7 +87,7 @@ describe('RecommendationService.calculateScore', () => {
   test('should handle Visitor Type Adaptation: Local vs Tourist', () => {
     const iconicLandmark = { ...baseLandmark, points: 50, tags: ['iconic'] };
     
-    const touristScore = recommendationService.calculateScore(
+    const { score: touristScore } = recommendationService.calculateScore(
       iconicLandmark,
       { ...basePreferences, visitor_type: 'tourist' },
       null,
@@ -98,7 +98,7 @@ describe('RecommendationService.calculateScore', () => {
     // Base 50 + Unvisited 15 + Tourist iconic bonus 15 + Access 10 + Points 10 = 100
     expect(touristScore).toBe(100);
 
-    const localScore = recommendationService.calculateScore(
+    const { score: localScore } = recommendationService.calculateScore(
       iconicLandmark,
       { ...basePreferences, visitor_type: 'local' },
       null,
@@ -114,7 +114,7 @@ describe('RecommendationService.calculateScore', () => {
     const indoorLandmark = { ...baseLandmark, is_indoor: true };
     const rainWeather = { isRaining: true };
     
-    const scoreWithRain = recommendationService.calculateScore(
+    const { score: scoreWithRain } = recommendationService.calculateScore(
       indoorLandmark,
       basePreferences,
       rainWeather,
@@ -125,7 +125,7 @@ describe('RecommendationService.calculateScore', () => {
     // Base 50 + Unvisited 15 + Rain indoor bonus 15 + Midday indoor bonus 10 + Access 10 + Points 2 = 102 (caps at 100)
     expect(scoreWithRain).toBe(100);
 
-    const scoreNoRain = recommendationService.calculateScore(
+    const { score: scoreNoRain } = recommendationService.calculateScore(
       indoorLandmark,
       basePreferences,
       { isRaining: false },
@@ -141,7 +141,7 @@ describe('RecommendationService.calculateScore', () => {
     const funLandmark = { ...baseLandmark, tags: ['fun', 'park'] };
     const kidsPrefs = { ...basePreferences, group_context: 'kids' };
     
-    const score = recommendationService.calculateScore(
+    const { score } = recommendationService.calculateScore(
       funLandmark,
       kidsPrefs,
       null,
@@ -153,7 +153,7 @@ describe('RecommendationService.calculateScore', () => {
     expect(score).toBe(97);
 
     const steepLandmark = { ...baseLandmark, tags: ['steep-climb'] };
-    const steepScore = recommendationService.calculateScore(
+    const { score: steepScore } = recommendationService.calculateScore(
       steepLandmark,
       kidsPrefs,
       null,
@@ -167,7 +167,7 @@ describe('RecommendationService.calculateScore', () => {
 
   test('should handle Adaptive Difficulty: New User', () => {
     const hiddenGem = { ...baseLandmark, tags: ['hidden-gem'] };
-    const newUserScore = recommendationService.calculateScore(
+    const { score: newUserScore } = recommendationService.calculateScore(
       hiddenGem,
       basePreferences,
       null,
@@ -178,7 +178,7 @@ describe('RecommendationService.calculateScore', () => {
     // Base 50 + Unvisited 15 - Hidden gem penalty for new user 10 + Access 10 + Points 2 = 67
     expect(newUserScore).toBe(67);
 
-    const powerUserScore = recommendationService.calculateScore(
+    const { score: powerUserScore } = recommendationService.calculateScore(
       hiddenGem,
       basePreferences,
       null,

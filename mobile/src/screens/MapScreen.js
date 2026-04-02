@@ -154,7 +154,6 @@ export default function MapScreen() {
         created_by: exp.created_by,
         memberCount: exp.members?.length || 0,
         categories: exp.categories || [],
-        dnaMatch: 90,
         // Pass both display initials AND raw member objects for membership check
         dnaMatch: dnaMatch || 85,
         members: (exp.members || []).map((m) => m.user_name?.[0] || '?'),

@@ -1,4 +1,5 @@
 const supabase = require('../config/supabase');
+const { query } = require('../config/database');
 
 /**
  * Authentication middleware.
@@ -33,18 +34,17 @@ const authenticate = async (req, res, next) => {
     }
 
     // Implicitly sign up/sync user to our local DB
-    const { query } = require('../config/database');
     const existingUser = await query('SELECT id FROM users WHERE id = $1', [user.id]);
-    
     if (existingUser.rows.length === 0) {
       // Create user record in our DB
-      const displayName = user.user_metadata?.name || user.email.split('@')[0];
+      const displayName = user.email ? user.email.split('@')[0] : 'User';
       await query(
         'INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3)',
-        [user.id, user.email, displayName]
+        [user.id, user.email || 'test@example.com', displayName]
       );
     }
 
+    // console.log('Auth middleware user:', user);
     req.user = user;
     next();
   } catch (err) {

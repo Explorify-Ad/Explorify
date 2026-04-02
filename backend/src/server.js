@@ -43,8 +43,10 @@ app.use('/api/quests', questRoutes);
 app.use(errorHandler);
 
 // Start server
-app.listen(PORT, () => {
-  logger.info(`Explorify API server running on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    logger.info(`Explorify API server running on port ${PORT}`);
+  });
+}
 
 module.exports = app;

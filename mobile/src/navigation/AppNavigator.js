@@ -3,7 +3,7 @@ import { View, ActivityIndicator, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Map, Target, Briefcase, User, Route } from 'lucide-react-native';
+import { Map, Target, Briefcase, User, Route, Home } from 'lucide-react-native';
 
 import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
@@ -20,6 +20,7 @@ import ExpeditionPreviewScreen from '../screens/ExpeditionPreviewScreen';
 import ExpeditionChatScreen from '../screens/ExpeditionChatScreen';
 import GroupScreen from '../screens/GroupScreen';
 import MyExpeditionsScreen from '../screens/MyExpeditionsScreen';
+import HomeScreen from '../screens/HomeScreen';
 import { useTheme } from '../context/ThemeContext';
 import useStore from '../store/useStore';
 import supabase from '../services/supabase';
@@ -49,12 +50,13 @@ function TabNavigator() {
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarLabelStyle: { fontSize: 11, fontWeight: '500', marginTop: 2 },
         tabBarIcon: ({ focused, color }) => {
-          const icons = { Map, Quests: Target, Route, Collection: Briefcase, Profile: User };
+          const icons = { Home, Map, Quests: Target, Route, Collection: Briefcase, Profile: User };
           const Icon = icons[route.name];
           return <Icon size={22} color={color} strokeWidth={focused ? 2.5 : 1.8} />;
         },
       })}
     >
+      <Tab.Screen name="Home"       component={HomeScreen} />
       <Tab.Screen name="Map"        component={MapScreen} />
       <Tab.Screen name="Quests"     component={QuestsScreen} />
       <Tab.Screen name="Route"      component={RouteBuilderScreen} options={{ tabBarLabel: 'Route' }} />

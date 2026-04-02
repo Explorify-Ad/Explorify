@@ -1,7 +1,3 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
-import * as Battery from 'expo-battery';
-import api from '../services/api';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -33,9 +29,7 @@ import useBattery from '../hooks/useBattery';
 import useWeather from '../hooks/useWeather';
 import useLocation from '../hooks/useLocation';
 import { getCurrentLocation } from '../services/location';
-import { fetchAllLandmarks, fetchUserDwellTimes } from '../services/supabase';
-import { getRecommendations, buildContext, buildPreferences } from '../utils/recommendations';
-import { buildRoute } from '../utils/routing';
+import api from '../services/api';
 import { CATEGORY_COLORS } from '../utils/theme';
 import { CATEGORY_ICONS } from '../components/explorify/PinDetailModal';
 
@@ -48,12 +42,6 @@ const TIME_OPTIONS = [
 ];
 
 const CATEGORIES = ['Architecture', 'Food', 'Nature', 'History', 'Art', 'Nightlife'];
-
-const WALK_SPEED_KMH = 4.5;
-
-function walkMinutes(distanceMeters) {
-  return Math.round((distanceMeters / 1000 / WALK_SPEED_KMH) * 60);
-}
 
 // ─── Weather banner ───────────────────────────────────────────────────────────
 
@@ -108,20 +96,17 @@ function BatteryBanner({ tier, originalBudget, adjustedBudget }) {
 function WaypointCard({ index, landmark, walkMin, isFirst }) {
   const color = CATEGORY_COLORS[landmark.category] || '#64748b';
   const Icon = CATEGORY_ICONS[landmark.category];
-  const visitMin = landmark.avg_visit_duration_min || 30;
+  const visitMin = landmark.visit_duration_min || landmark.avg_visit_duration_min || 30;
 
   return (
     <View style={styles.waypointRow}>
-      {/* Step number */}
       <View style={[styles.stepBubble, { backgroundColor: color }]}>
         <Text style={styles.stepNum}>{index + 1}</Text>
       </View>
 
-      {/* Connector line */}
       {!isFirst && <View style={[styles.connectorLine, { backgroundColor: color + '40' }]} />}
 
       <View style={styles.waypointCard}>
-        {/* Category strip */}
         <LinearGradient
           colors={[color, color + 'bb']}
           style={styles.waypointStrip}
@@ -147,7 +132,7 @@ function WaypointCard({ index, landmark, walkMin, isFirst }) {
             <View style={styles.metaChip}>
               <Zap size={11} color="#F5A623" strokeWidth={2} />
               <Text style={[styles.metaText, { color: '#F5A623', fontWeight: '600' }]}>
-                +{landmark.xpEarned || landmark.points * 15 || 150} XP
+                +{landmark.reasons?.length > 0 ? 'Match' : 'Points'}
               </Text>
             </View>
           </View>
@@ -159,253 +144,99 @@ function WaypointCard({ index, landmark, walkMin, isFirst }) {
 
 // ─── Main screen ─────────────────────────────────────────────────────────────
 
-export default function RouteBuilderScreen() {
+export default function RouteBuilderScreen({ route: navigationRoute, navigation }) {
   const insets = useSafeAreaInsets();
   const { location } = useLocation();
-  const { tier: batteryTier, getAdjustedBudget } = useBattery();
+  const { tier: batteryTier, getAdjustedBudget, batteryLevel } = useBattery();
   const { weather } = useWeather(location?.latitude, location?.longitude);
 
-  const interests     = useStore((s) => s.interests);
-  const visitorType   = useStore((s) => s.visitorType);
-  const collection    = useStore((s) => s.collection);
-  const authUser      = useStore((s) => s.authUser);
+  const preferences = useStore((s) => s.preferences);
+  const setPreferences = useStore((s) => s.setPreferences);
+  const authUser = useStore((s) => s.authUser);
 
-  const [timeBudget,       setTimeBudget]       = useState(60);
-  const [selectedCats,     setSelectedCats]     = useState([]);
-  const [route,            setRoute]            = useState(null);
-  const [routeStats,       setRouteStats]       = useState(null);
-  const [building,         setBuilding]         = useState(false);
-  const [originalBudget,   setOriginalBudget]   = useState(60);
-  const [resolvedLocation, setResolvedLocation] = useState(null);
-  const [isCustom,         setIsCustom]         = useState(false);
-  const [customHours,      setCustomHours]      = useState(0);
-  const [customMins,       setCustomMins]       = useState(30);
+  const [timeBudget, setTimeBudget] = useState(60);
+  const [selectedCats, setSelectedCats] = useState(CATEGORIES);
+  const [generatedRoute, setGeneratedRoute] = useState(null);
+  const [routeStats, setRouteStats] = useState(null);
+  const [building, setBuilding] = useState(false);
+  const [isCustom, setIsCustom] = useState(false);
+  const [customHours, setCustomHours] = useState(1);
+  const [customMins, setCustomMins] = useState(0);
 
-  // Pre-select user's top interests
-  useEffect(() => {
-    const catMap = {
-      architecture: 'Architecture', food: 'Food', history: 'History',
-      art: 'Art', nature: 'Nature', nightlife: 'Nightlife',
-    };
-    const preferred = interests.map((i) => catMap[i]).filter(Boolean);
-    setSelectedCats(preferred.length ? preferred : CATEGORIES.slice(0, 3));
-  }, [interests]);
+  const group_id = navigationRoute?.params?.group_id;
 
   const toggleCategory = (cat) => {
     setSelectedCats((prev) =>
       prev.includes(cat) ? (prev.length > 1 ? prev.filter((c) => c !== cat) : prev) : [...prev, cat]
     );
-    setRoute(null);
+    setGeneratedRoute(null);
   };
-
-  // Sync custom time → timeBudget whenever hours/mins change while custom is active
-  useEffect(() => {
-    if (!isCustom) return;
-    const total = customHours * 60 + customMins;
-    if (total >= 15) { setTimeBudget(total); setRoute(null); }
-  }, [isCustom, customHours, customMins]);
-
-  const adjustCustom = (unit, delta) => {
-    if (unit === 'h') {
-      setCustomHours((h) => Math.max(0, Math.min(12, h + delta)));
-    } else {
-      setCustomMins((m) => {
-        const next = m + delta;
-        // don't go below 0; if hours > 0, mins can be 0
-        return Math.max(customHours > 0 ? 0 : 15, Math.min(55, next));
-      });
-    }
-  };
-
-  const activateCustom = () => {
-    setIsCustom(true);
-    const total = customHours * 60 + customMins;
-    if (total >= 15) setTimeBudget(total);
-    setRoute(null);
-  };
-
-  const customLabel = (() => {
-    const h = customHours > 0 ? `${customHours}h ` : '';
-    const m = customMins > 0 ? `${customMins}m` : '';
-    return (h + m).trim() || '—';
-  })();
-
-  const buildUserRoute = useCallback(async () => {
-    setBuilding(true);
-    setRoute(null);
-
-/**
- * Route builder screen - allows users to generate walking routes.
- * @param {object} props - Component props
- * @param {object} props.navigation - React Navigation object
- * @returns {React.Component} Route builder screen component
- */
-export default function RouteBuilderScreen({ route, navigation }) {
-  const { group_id } = route.params || {};
-  const [groupContext, setGroupContext] = useState('solo');
-  const [visitorType, setVisitorType] = useState('tourist');
-  const [batteryLevel, setBatteryLevel] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [context, setContext] = useState(null);
-
-  useEffect(() => {
-    async function getInitialData() {
-      try {
-        const [bat, ctxResponse] = await Promise.all([
-          Battery.getBatteryLevelAsync(),
-          api.get('/landmarks/context')
-        ]);
-        setBatteryLevel(bat);
-        setContext(ctxResponse.data.data);
-      } catch (err) {
-        console.warn('Failed to fetch context', err);
-      }
-    }
-    getInitialData();
-
-    const subscription = Battery.addBatteryLevelListener(({ batteryLevel }) => {
-      setBatteryLevel(batteryLevel);
-    });
-
-    return () => subscription.remove();
-  }, []);
-
-  const contexts = [
-    { id: 'solo', label: '🧍 Solo' },
-    { id: 'kids', label: '👨‍👩‍👧‍👦 With Kids' },
-    { id: 'elderly', label: '🧓 Elderly' },
-    { id: 'large_group', label: '👥 Large Group' },
-  ];
-
-  const visitorTypes = [
-    { id: 'tourist', label: '✈️ Tourist' },
-    { id: 'local', label: '🏠 Local' },
-  ];
-
-  const preferences = useStore((s) => s.preferences);
 
   const handleGenerateRoute = async () => {
-    setLoading(true);
-    try {
-      const response = await api.post('/routes/generate', {
-        start_lat: 53.3498, // Dublin placeholder
-        start_lng: -6.2603,
-        time_budget_min: 120,
-        group_id: group_id,
-        preferences: {
-          ...preferences,
-          group_context: groupContext,
-          visitor_type: visitorType,
-          current_hour: new Date().getHours(),
-          battery_level: Math.round(batteryLevel * 100),
-        }
-      });
-
-      const generatedRoute = response.data.data || response.data;
-      const landmarks = generatedRoute.landmarks || [];
-      const totalTime = generatedRoute.total_time_min || 120;
-
-      if (landmarks.length > 0) {
-        navigation.navigate('Map', {
-          generatedRoute: landmarks,
-          context: `${visitorType} Route (${totalTime} min)`
-        });
-      } else {
-        Alert.alert('No Route Found', 'Try adjusting your preferences or time budget.');
-      }
-    } catch (err) {
-      console.error(err);
-      Alert.alert('Error', 'Failed to generate route. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+    setBuilding(true);
+    setGeneratedRoute(null);
 
     let coords = location;
     if (!coords) {
       try {
         coords = await getCurrentLocation();
       } catch {
-        Alert.alert('Location needed', 'Please enable location in Settings to build a route.');
+        Alert.alert('Location needed', 'Please enable location to build a route.');
         setBuilding(false);
         return;
       }
     }
-    setResolvedLocation(coords);
 
     try {
-      // 1. Apply battery cap
       const { budget: adjusted } = getAdjustedBudget(timeBudget);
-      setOriginalBudget(timeBudget);
-
-      // 2. Fetch landmarks and dwell-time personalisation
-      const [allLandmarks, dwellTimes] = await Promise.all([
-        fetchAllLandmarks(coords.latitude, coords.longitude),
-        authUser?.id ? fetchUserDwellTimes(authUser.id) : Promise.resolve(null),
-      ]);
-
-      // 3. Filter by selected categories
-      const pool = allLandmarks.filter((lm) => selectedCats.includes(lm.category));
-      if (!pool.length) {
-        Alert.alert('No landmarks', 'No landmarks found for the selected categories.');
-        setBuilding(false);
-        return;
-      }
-
-      // 4. Score + rank with full recommendation engine
-      const context     = buildContext({ weather, batteryTier });
-      const preferences = buildPreferences({ interests, visitorType, collection });
-      const scored      = getRecommendations(pool, preferences, context);
-
-      // 5. Augment with personalised dwell times
-      const augmented = scored.map((lm) => ({
-        ...lm,
-        avg_visit_duration_min: dwellTimes?.[lm.category] ?? lm.avg_visit_duration_min ?? 30,
-      }));
-
-      // 6. Build route (nearest-neighbor within time budget)
-      const built = buildRoute(coords, augmented, adjusted);
-
-      if (!built.length) {
-        Alert.alert('Not enough time', 'Try a longer time budget or more categories.');
-        setBuilding(false);
-        return;
-      }
-
-      // 7. Compute per-waypoint walk times and totals
-      let totalWalk = 0;
-      let totalVisit = 0;
-      let totalXP = 0;
-      let prev = coords;
-
-      const enriched = built.map((lm, i) => {
-        const { haversineDistance } = require('../services/tomtom');
-        const distM = haversineDistance(prev.latitude, prev.longitude, lm.lat ?? lm.latitude, lm.lon ?? lm.longitude);
-        const wMin = i === 0 ? 0 : walkMinutes(distM);
-        const vMin = lm.avg_visit_duration_min || 30;
-        totalWalk  += wMin;
-        totalVisit += vMin;
-        totalXP    += lm.xpEarned || lm.points * 15 || 150;
-        prev = { latitude: lm.lat ?? lm.latitude, longitude: lm.lon ?? lm.longitude };
-        return { ...lm, walkMin: wMin };
+      
+      const response = await api.post('/routes/generate', {
+        start_lat: coords.latitude,
+        start_lng: coords.longitude,
+        time_budget_min: adjusted,
+        group_id: group_id,
+        preferences: {
+          ...preferences,
+          categories: selectedCats,
+          battery_level: Math.round(batteryLevel * 100),
+          current_hour: new Date().getHours(),
+        }
       });
 
-      setRoute(enriched);
-      setRouteStats({ totalMin: totalWalk + totalVisit, totalXP, stops: enriched.length });
-    } catch (e) {
-      console.warn('Route build error:', e.message);
-      Alert.alert('Error', 'Could not build route. Please try again.');
+      const data = response.data.data;
+      const landmarks = data.landmarks || [];
+      
+      if (!landmarks.length) {
+        Alert.alert('No Route Found', 'Try increasing your time budget or adding more categories.');
+        setBuilding(false);
+        return;
+      }
+
+      setGeneratedRoute(landmarks);
+      
+      // Compute stats
+      let totalXP = 0;
+      landmarks.forEach(l => totalXP += (l.points || 10) * 15);
+      setRouteStats({
+        stops: landmarks.length,
+        totalMin: data.estimated_duration_min || adjusted,
+        totalXP
+      });
+
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Error', 'Failed to generate route. Please try again.');
+    } finally {
+      setBuilding(false);
     }
-    setBuilding(false);
-  }, [location, timeBudget, selectedCats, weather, batteryTier, interests, visitorType, collection, authUser, getAdjustedBudget]);
+  };
 
   const openInMaps = () => {
-    if (!route?.length) return;
-    const waypoints = route
-      .map((lm) => `${lm.lat ?? lm.latitude},${lm.lon ?? lm.longitude}`)
+    if (!generatedRoute?.length) return;
+    const waypoints = generatedRoute
+      .map((lm) => `${lm.latitude},${lm.longitude}`)
       .join('/');
-    const src = resolvedLocation || location;
+    const src = location || { latitude: 53.3498, longitude: -6.2603 };
     const url = `http://maps.apple.com/?saddr=${src.latitude},${src.longitude}&daddr=${waypoints}`;
     Linking.openURL(url).catch(() =>
       Alert.alert('Cannot open Maps', 'Make sure Apple Maps is installed.')
@@ -415,108 +246,7 @@ export default function RouteBuilderScreen({ route, navigation }) {
   const { budget: adjustedBudget } = getAdjustedBudget(timeBudget);
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Route Builder</Text>
-
-      {context && (
-        <View style={styles.contextHUD}>
-          <View style={styles.contextItem}>
-            <Text style={styles.contextEmoji}>
-              {context.weather?.isRaining ? '🌧️' : context.weather?.isClear ? '☀️' : '🌥️'}
-            </Text>
-            <View>
-              <Text style={styles.contextTitle}>{context.weather?.description || 'Loading...'}</Text>
-              <Text style={styles.contextSub}>
-                {context.weather?.isRaining ? 'Indoor venues boosted' : 'Scenic spots prioritized'}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.contextDivider} />
-          <View style={styles.contextItem}>
-            <Text style={styles.contextEmoji}>
-              {context.timeSlot === 'Morning' ? '🌅' : context.timeSlot === 'Evening' ? '🌇' : '🏙️'}
-            </Text>
-            <View>
-              <Text style={styles.contextTitle}>{context.timeSlot} Slot</Text>
-              <Text style={styles.contextSub}>
-                {context.timeSlot === 'Evening' ? 'Lighting & Vibes scored' : 'Activity focused'}
-              </Text>
-            </View>
-          </View>
-        </View>
-      )}
-
-      {group_id && (
-        <View style={styles.groupModeBanner}>
-          <Text style={styles.groupModeText}>👥 Group Sync Active: Merging preferences... </Text>
-        </View>
-      )}
-
-      {batteryLevel < 0.2 && (
-        <View style={styles.batteryWarning}>
-          <Text style={styles.batteryWarningTitle}>⚠️ Optimization: Battery Low ({Math.round(batteryLevel * 100)}%)</Text>
-          <Text style={styles.batteryWarningText}>
-            We've adjusted your route to be shorter and closer to your current location to save power.
-          </Text>
-        </View>
-      )}
-
-      <Text style={styles.sectionTitle}>I am a...</Text>
-      <View style={styles.chipContainer}>
-        {visitorTypes.map((type) => (
-          <TouchableOpacity
-            key={type.id}
-            style={[
-              styles.chip,
-              visitorType === type.id && styles.chipActive
-            ]}
-            onPress={() => setVisitorType(type.id)}
-          >
-            <Text style={[
-              styles.chipText,
-              visitorType === type.id && styles.chipTextActive
-            ]}>
-              {type.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <Text style={styles.sectionTitle}>Who are you exploring with?</Text>
-      <View style={styles.chipContainer}>
-        {contexts.map((ctx) => (
-          <TouchableOpacity
-            key={ctx.id}
-            style={[
-              styles.chip,
-              groupContext === ctx.id && styles.chipActive
-            ]}
-            onPress={() => setGroupContext(ctx.id)}
-          >
-            <Text style={[
-              styles.chipText,
-              groupContext === ctx.id && styles.chipTextActive
-            ]}>
-              {ctx.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <TouchableOpacity
-        style={styles.generateButton}
-        onPress={handleGenerateRoute}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.generateButtonText}>🚀 Generate Route</Text>
-        )}
-      </TouchableOpacity>
-    </ScrollView>
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTitle}>
           <Route size={18} color="#F5A623" strokeWidth={2} />
@@ -529,7 +259,6 @@ export default function RouteBuilderScreen({ route, navigation }) {
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 32 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Context banners */}
         <WeatherBanner weather={weather} />
         <BatteryBanner
           tier={batteryTier}
@@ -537,7 +266,6 @@ export default function RouteBuilderScreen({ route, navigation }) {
           adjustedBudget={adjustedBudget}
         />
 
-        {/* Time budget */}
         <Text style={styles.sectionLabel}>Time budget</Text>
         <ScrollView
           horizontal
@@ -546,77 +274,24 @@ export default function RouteBuilderScreen({ route, navigation }) {
         >
           {TIME_OPTIONS.map((opt) => {
             const active = !isCustom && timeBudget === opt.value;
-            const capped = getAdjustedBudget(opt.value).budget < opt.value;
             return (
               <Pressable
                 key={opt.value}
-                style={[
-                  styles.timeChip,
-                  active && styles.timeChipActive,
-                  capped && styles.timeChipDisabled,
-                ]}
-                onPress={() => {
-                  if (!capped) { setIsCustom(false); setTimeBudget(opt.value); setRoute(null); }
-                }}
+                style={[styles.timeChip, active && styles.timeChipActive]}
+                onPress={() => { setIsCustom(false); setTimeBudget(opt.value); setGeneratedRoute(null); }}
               >
-                <Text
-                  style={[
-                    styles.timeChipText,
-                    active && styles.timeChipTextActive,
-                    capped && styles.timeChipTextDisabled,
-                  ]}
-                >
-                  {opt.label}
-                </Text>
+                <Text style={[styles.timeChipText, active && styles.timeChipTextActive]}>{opt.label}</Text>
               </Pressable>
             );
           })}
-          {/* Custom chip */}
           <Pressable
-            style={[styles.timeChip, styles.timeChipCustom, isCustom && styles.timeChipActive]}
-            onPress={activateCustom}
+            style={[styles.timeChip, isCustom && styles.timeChipActive]}
+            onPress={() => setIsCustom(true)}
           >
-            <Clock size={12} color={isCustom ? '#92400E' : '#6B7280'} strokeWidth={2} />
-            <Text style={[styles.timeChipText, isCustom && styles.timeChipTextActive]}>
-              {isCustom ? customLabel : 'Custom'}
-            </Text>
+            <Text style={[styles.timeChipText, isCustom && styles.timeChipTextActive]}>Custom</Text>
           </Pressable>
         </ScrollView>
 
-        {/* Custom time picker */}
-        {isCustom && (
-          <View style={styles.customPicker}>
-            <View style={styles.customUnit}>
-              <Pressable style={styles.adjBtn} onPress={() => adjustCustom('h', 1)}>
-                <Plus size={15} color="#F5A623" strokeWidth={2.5} />
-              </Pressable>
-              <Text style={styles.adjVal}>{customHours}</Text>
-              <Pressable style={styles.adjBtn} onPress={() => adjustCustom('h', -1)}>
-                <Minus size={15} color="#F5A623" strokeWidth={2.5} />
-              </Pressable>
-              <Text style={styles.adjLabel}>hrs</Text>
-            </View>
-            <View style={styles.customDivider} />
-            <View style={styles.customUnit}>
-              <Pressable style={styles.adjBtn} onPress={() => adjustCustom('m', 5)}>
-                <Plus size={15} color="#F5A623" strokeWidth={2.5} />
-              </Pressable>
-              <Text style={styles.adjVal}>{customMins}</Text>
-              <Pressable style={styles.adjBtn} onPress={() => adjustCustom('m', -5)}>
-                <Minus size={15} color="#F5A623" strokeWidth={2.5} />
-              </Pressable>
-              <Text style={styles.adjLabel}>min</Text>
-            </View>
-            {(customHours * 60 + customMins) > 90 && (
-              <View style={styles.farAwayNote}>
-                <MapPin size={11} color="#7C3AED" strokeWidth={2} />
-                <Text style={styles.farAwayText}>Includes spots further afield</Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Category filter */}
         <Text style={styles.sectionLabel}>Categories</Text>
         <View style={styles.catRow}>
           {CATEGORIES.map((cat) => {
@@ -626,57 +301,31 @@ export default function RouteBuilderScreen({ route, navigation }) {
             return (
               <Pressable
                 key={cat}
-                style={[
-                  styles.catChip,
-                  { borderColor: color },
-                  active && { backgroundColor: color },
-                ]}
+                style={[styles.catChip, { borderColor: color }, active && { backgroundColor: color }]}
                 onPress={() => toggleCategory(cat)}
               >
-                {Icon && (
-                  <Icon
-                    size={13}
-                    color={active ? 'white' : color}
-                    strokeWidth={2}
-                  />
-                )}
-                <Text style={[styles.catChipText, { color: active ? 'white' : color }]}>
-                  {cat}
-                </Text>
+                <Text style={[styles.catChipText, { color: active ? 'white' : color }]}>{cat}</Text>
               </Pressable>
             );
           })}
         </View>
 
-        {/* Build button */}
         <Pressable
           style={[styles.buildBtn, building && { opacity: 0.7 }]}
-          onPress={buildUserRoute}
+          onPress={handleGenerateRoute}
           disabled={building}
         >
           <LinearGradient
             colors={['#F5A623', '#F97316']}
             style={styles.buildBtnGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
           >
-            {building ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <>
-                <Route size={18} color="white" strokeWidth={2} />
-                <Text style={styles.buildBtnText}>
-                  {route ? 'Rebuild Route' : 'Build My Route'}
-                </Text>
-              </>
-            )}
+            {building ? <ActivityIndicator color="white" /> : <Text style={styles.buildBtnText}>Generate Route</Text>}
           </LinearGradient>
         </Pressable>
 
-        {/* Route result */}
-        {route && routeStats && (
+        {generatedRoute && routeStats && (
           <>
-            {/* Stats header */}
             <View style={styles.statsRow}>
               <View style={styles.statBox}>
                 <Text style={styles.statVal}>{routeStats.stops}</Text>
@@ -685,7 +334,7 @@ export default function RouteBuilderScreen({ route, navigation }) {
               <View style={styles.statDivider} />
               <View style={styles.statBox}>
                 <Text style={styles.statVal}>{routeStats.totalMin}</Text>
-                <Text style={styles.statLbl}>min total</Text>
+                <Text style={styles.statLbl}>min</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statBox}>
@@ -694,24 +343,21 @@ export default function RouteBuilderScreen({ route, navigation }) {
               </View>
             </View>
 
-            {/* Waypoints */}
             <View style={styles.waypointList}>
-              {route.map((lm, i) => (
+              {generatedRoute.map((lm, i) => (
                 <WaypointCard
-                  key={String(lm.id)}
+                  key={lm.id}
                   index={i}
                   landmark={lm}
-                  walkMin={lm.walkMin}
+                  walkMin={lm.estimated_arrival_min || 0}
                   isFirst={i === 0}
                 />
               ))}
             </View>
 
-            {/* Open in Maps */}
             <Pressable style={styles.mapsBtn} onPress={openInMaps}>
-              <MapPin size={16} color="white" strokeWidth={2} />
               <Text style={styles.mapsBtnText}>Open in Maps</Text>
-              <ChevronRight size={16} color="white" strokeWidth={2} />
+              <ChevronRight size={16} color="white" />
             </Pressable>
           </>
         )}
@@ -721,11 +367,6 @@ export default function RouteBuilderScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    padding: 20,
-    justifyContent: 'center',
   container: { flex: 1, backgroundColor: '#FFFDF8' },
   header: {
     flexDirection: 'row',
@@ -736,186 +377,26 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.06)',
   },
-  backBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    alignItems: 'center', justifyContent: 'center',
-  },
   headerTitle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerText: { fontSize: 16, fontWeight: '700', color: '#1A1A2E' },
   scroll: { paddingHorizontal: 16, paddingTop: 16 },
-
-  // Banners
   banner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingHorizontal: 12, paddingVertical: 8,
     borderRadius: 10, marginBottom: 10,
   },
   bannerText: { fontSize: 13, color: '#374151', flex: 1 },
-
-  // Time budget
   sectionLabel: { fontSize: 13, fontWeight: '600', color: '#6B7280', letterSpacing: 0.5, marginBottom: 10, marginTop: 16 },
-  timeRow: { flexDirection: 'row', gap: 8, marginBottom: 4, paddingRight: 4 },
+  timeRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
   timeChip: {
     paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12,
     borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.12)',
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'white',
   },
-  timeChipCustom: { flexDirection: 'row', gap: 5, paddingHorizontal: 14 },
   timeChipActive: { borderColor: '#F5A623', backgroundColor: '#FEF3C7' },
-  timeChipDisabled: { opacity: 0.38 },
   timeChipText: { fontSize: 13, fontWeight: '600', color: '#6B7280' },
   timeChipTextActive: { color: '#92400E' },
-  timeChipTextDisabled: { color: '#9CA3AF' },
-
-  // Custom time picker
-  customPicker: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'white', borderRadius: 14, padding: 14, marginTop: 8, marginBottom: 4,
-    borderWidth: 1.5, borderColor: '#F5A623',
-    shadowColor: '#F5A623', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12, shadowRadius: 8, elevation: 2,
-    gap: 0,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#666',
-    marginBottom: 12,
-    marginLeft: 4,
-  },
-  chipContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'flex-start',
-    gap: 10,
-    marginBottom: 24,
-  },
-  chip: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    backgroundColor: '#fff',
-  },
-  chipActive: {
-    backgroundColor: '#2E86AB',
-    borderColor: '#2E86AB',
-  },
-  chipText: {
-    fontSize: 14,
-    color: '#555',
-    fontWeight: '500',
-  },
-  chipTextActive: {
-    color: '#fff',
-  },
-  generateButton: {
-    backgroundColor: '#E76F51',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  generateButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  batteryWarning: {
-    backgroundColor: '#FFF3CD',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FFEEBA',
-    marginBottom: 24,
-  },
-  batteryWarningTitle: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#856404',
-    marginBottom: 4,
-  },
-  batteryWarningText: {
-    fontSize: 13,
-    color: '#856404',
-    lineHeight: 18,
-  },
-  groupModeBanner: {
-    backgroundColor: '#D1ECF1',
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#BEE5EB',
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  groupModeText: {
-    color: '#0C5460',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  contextHUD: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
-  },
-  contextItem: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  contextEmoji: {
-    fontSize: 24,
-    marginRight: 10,
-  },
-  contextTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#374151',
-  },
-  contextSub: {
-    fontSize: 10,
-    color: '#9CA3AF',
-    marginTop: 2,
-  },
-  contextDivider: {
-    width: 1,
-    height: '80%',
-    backgroundColor: '#F3F4F6',
-    marginHorizontal: 12,
-    alignSelf: 'center',
-  customUnit: { flex: 1, alignItems: 'center', gap: 4 },
-  adjBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#FEF3C7', alignItems: 'center', justifyContent: 'center',
-  },
-  adjVal: { fontSize: 26, fontWeight: '800', color: '#1A1A2E', lineHeight: 30 },
-  adjLabel: { fontSize: 12, fontWeight: '600', color: '#6B7280' },
-  customDivider: { width: 1, height: 70, backgroundColor: 'rgba(0,0,0,0.08)', marginHorizontal: 8 },
-  farAwayNote: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    position: 'absolute', bottom: 8, right: 12,
-  },
-  farAwayText: { fontSize: 10, color: '#7C3AED', fontWeight: '600' },
-
-  // Categories
   catRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
   catChip: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
@@ -923,16 +404,12 @@ const styles = StyleSheet.create({
     borderRadius: 100, borderWidth: 1.5, backgroundColor: 'white',
   },
   catChipText: { fontSize: 12, fontWeight: '600' },
-
-  // Build button
   buildBtn: { marginTop: 24, marginBottom: 4, borderRadius: 16, overflow: 'hidden' },
   buildBtnGradient: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 10, paddingVertical: 16,
   },
   buildBtnText: { color: 'white', fontSize: 16, fontWeight: '700' },
-
-  // Stats
   statsRow: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: 'white', borderRadius: 16, marginTop: 20, marginBottom: 4,
@@ -944,10 +421,8 @@ const styles = StyleSheet.create({
   statVal: { fontSize: 22, fontWeight: '800', color: '#1A1A2E' },
   statLbl: { fontSize: 11, color: '#6B7280', marginTop: 2 },
   statDivider: { width: 1, height: 32, backgroundColor: 'rgba(0,0,0,0.08)' },
-
-  // Waypoints
-  waypointList: { marginTop: 16, gap: 0 },
-  waypointRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
+  waypointList: { marginTop: 16, gap: 12 },
+  waypointRow: { flexDirection: 'row', alignItems: 'flex-start' },
   stepBubble: {
     width: 28, height: 28, borderRadius: 14,
     alignItems: 'center', justifyContent: 'center',
@@ -971,8 +446,6 @@ const styles = StyleSheet.create({
   waypointMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   metaChip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   metaText: { fontSize: 11, color: '#6B7280' },
-
-  // Open in Maps
   mapsBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 8, backgroundColor: '#1A1A2E',

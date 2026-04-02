@@ -50,24 +50,22 @@ function computeStreak(collection) {
   return streak;
 }
 
-/** Quest target scales with level: 3 at start, +1 every 3 levels, max 8 */
 function getQuestTarget(level) {
   return Math.min(3 + Math.floor(level / 3), 8);
 }
 
-/** Quest XP bonus scales with target */
 function getQuestXP(quest, target) {
   return Math.round(quest.baseXp * (target / 3));
 }
 
 const useStore = create((set, get) => ({
-  // ─── Persisted state ──────────────────────────────────────────────────────
+  // ─── State ────────────────────────────────────────────────────────────────
   hasOnboarded: false,
   userName: 'Explorer',
-  interests: [],          // array of category ids from onboarding
-  collection: [],         // checked-in landmarks with metadata
-  activeQuestId: null,    // id from QUESTS
-  landmarks: [],          // Current map recommendations
+  interests: [],          
+  collection: [],         
+  activeQuestId: null,    
+  landmarks: [],          
   preferences: {
     walking_speed_kmh: 4.5,
     category_dwell_multipliers: {},
@@ -76,21 +74,14 @@ const useStore = create((set, get) => ({
     group_context: 'solo',
     abandonment_streak: 0,
   },
-
-  quests: [],             // User quests from backend
-  communities: [],        // All available communities
-  userBadges: [],         // Awarded badges
-  interests: [],           // array of category ids from onboarding
-  visitorType: 'tourist',  // 'tourist' | 'local'
-  collection: [],          // checked-in landmarks with metadata
-  activeQuestId: null,     // id from QUESTS
-  completedQuests: [],     // quest ids whose XP has been claimed
-  questBonusXP: 0,         // cumulative XP earned from quest + daily completions
-  dailyClaimed: {},        // { 'Mon Apr 01 2026': true }
+  quests: [],             
+  communities: [],        
+  userBadges: [],         
+  completedQuests: [],    
+  questBonusXP: 0,        
+  dailyClaimed: {},       
   hydrated: false,
-
-  // ─── Auth state (not persisted — Supabase session handles it) ─────────────
-  authUser: null,          // { id, email, name }
+  authUser: null,          
   isAuthenticated: false,
 
   // ─── Actions ──────────────────────────────────────────────────────────────
@@ -135,7 +126,6 @@ const useStore = create((set, get) => ({
     }
   },
 
-
   joinCommunity: async (communityId) => {
     try {
       const api = (await import('../services/api')).default;
@@ -151,21 +141,6 @@ const useStore = create((set, get) => ({
     set({ preferences: { ...get().preferences, ...prefs } });
     get()._persist();
   },
-
-  trackPace: async (distanceKm, durationMin) => {
-    try {
-      const api = (await import('../services/api')).default;
-      await api.post('/routes/track-pace', {
-        distance_km: distanceKm,
-        duration_min: durationMin
-      });
-      // Optionally re-sync to get the updated moving average
-      await get().syncFromSupabase();
-    } catch (err) {
-      console.warn('trackPace error:', err);
-    }
-  },
-
 
   setAuthUser: (user, token) => {
     set({
@@ -189,7 +164,13 @@ const useStore = create((set, get) => ({
       art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
     };
     const defaultQuest = catMap[interests[0]] || 'q_arch';
-    set({ hasOnboarded: true, interests, visitorType, userName, activeQuestId: defaultQuest });
+    set({ 
+      hasOnboarded: true, 
+      interests, 
+      userName, 
+      activeQuestId: defaultQuest,
+      preferences: { ...get().preferences, visitor_type: visitorType }
+    });
     await get()._persist();
     const { authUser } = get();
     if (authUser?.id) {
@@ -209,8 +190,7 @@ const useStore = create((set, get) => ({
       });
 
       const { data, outcomes } = response.data;
-
-      const xp = data.points || 150;
+      const xp = data.points || TIER_XP[landmark.tier] || 150;
       const entry = {
         ...landmark,
         checkedInAt: new Date().toISOString(),
@@ -220,12 +200,10 @@ const useStore = create((set, get) => ({
       };
 
       set((state) => ({
-        collection: [...state.collection, entry],
-        // Refresh quests after check-in to get new progress
+        collection: [...state.collection, entry]
       }));
 
       if (outcomes && outcomes.length > 0) {
-        // We can handle specific outcomes here or just re-fetch
         await get().fetchQuests();
       }
 
@@ -233,18 +211,12 @@ const useStore = create((set, get) => ({
       return { xp, outcomes };
     } catch (err) {
       console.warn('checkIn error:', err);
-      // Fallback for offline or error (optional)
-      return { xp: 0, error: err.message };
-  checkIn: async (landmark) => {
-    const { collection, authUser } = get();
-    if (collection.find((c) => String(c.id) === String(landmark.id))) return 0;
-    const xp = TIER_XP[landmark.tier] || 150;
-    const entry = { ...landmark, checkedInAt: new Date().toISOString(), xpEarned: xp };
-    set((state) => ({ collection: [...state.collection, entry] }));
-    await get()._persist();
-    if (authUser?.id) {
-      const { saveCheckIn } = await import('../services/supabase');
-      await saveCheckIn(authUser.id, landmark, xp);
+      // Local fallback if offline
+      const xp = TIER_XP[landmark.tier] || 150;
+      const entry = { ...landmark, checkedInAt: new Date().toISOString(), xpEarned: xp };
+      set((state) => ({ collection: [...state.collection, entry] }));
+      await get()._persist();
+      return { xp, error: err.message };
     }
   },
 
@@ -253,155 +225,13 @@ const useStore = create((set, get) => ({
     await get()._persist();
   },
 
-  completeQuest: async (questId) => {
-    const quest = QUESTS.find((q) => q.id === questId);
-    if (!quest) return;
-    const level = computeLevel(get().getTotalXP());
-    const target = getQuestTarget(level);
-    const xp = getQuestXP(quest, target);
-    set((state) => ({
-      completedQuests: [...state.completedQuests, questId],
-      questBonusXP: state.questBonusXP + xp,
-      activeQuestId: null,
-    }));
-    await get()._persist();
-  },
-
-  /** Award the daily challenge XP bonus (call when user taps Claim). */
-  claimDailyChallenge: async () => {
-    const today = new Date().toDateString();
-    const challenge = get().getDailyChallenge();
-    if (!challenge || !challenge.achieved || challenge.claimed) return;
-    set((state) => ({
-      dailyClaimed: { ...state.dailyClaimed, [today]: true },
-      questBonusXP: state.questBonusXP + challenge.xpBonus,
-    }));
-    await get()._persist();
-  },
-
-  // ─── Computed getters ─────────────────────────────────────────────────────
+  // ─── Computed Getters ─────────────────────────────────────────────────────
 
   getTotalXP: () =>
     get().collection.reduce((s, c) => s + (c.xpEarned || 150), 0) + get().questBonusXP,
   getLevel: () => computeLevel(get().getTotalXP()),
   getCurrentXP: () => get().getTotalXP() % XP_PER_LEVEL,
   getStreak: () => computeStreak(get().collection),
-
-  getActiveQuest: () => {
-    const { activeQuestId, collection, interests, completedQuests } = get();
-    const catMap = {
-      architecture: 'q_arch', food: 'q_food', history: 'q_history',
-      art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
-    };
-    const preferredId = activeQuestId ?? catMap[interests[0]] ?? 'q_arch';
-    const quest =
-      QUESTS.find((q) => q.id === preferredId && !completedQuests.includes(q.id)) ||
-      QUESTS.find((q) => !completedQuests.includes(q.id)) ||
-      QUESTS[0];
-
-    // Adaptive target scales with level
-    const level = computeLevel(get().getTotalXP());
-    const target = getQuestTarget(level);
-    const xp = getQuestXP(quest, target);
-    const progress = collection.filter((c) => c.category === quest.category).length;
-    return { ...quest, target, xp, progress: Math.min(progress, target) };
-  },
-
-  getSuggestedQuests: () => {
-    const { activeQuestId, interests, collection, completedQuests, visitorType } = get();
-    const catMap = {
-      architecture: 'q_arch', food: 'q_food', history: 'q_history',
-      art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
-    };
-
-    // Count visits per category for novelty sorting
-    const counts = {};
-    collection.forEach((c) => { counts[c.category] = (counts[c.category] || 0) + 1; });
-
-    const sorted = [...QUESTS].sort((a, b) => {
-      if (visitorType === 'local') {
-        // Locals: prefer least-explored categories (novelty-first)
-        const aCnt = counts[a.category] || 0;
-        const bCnt = counts[b.category] || 0;
-        return aCnt - bCnt;
-      }
-      // Tourists: prefer stated interests
-      const preferred = interests.map((i) => catMap[i]).filter(Boolean);
-      const aP = preferred.indexOf(a.id);
-      const bP = preferred.indexOf(b.id);
-      return (aP === -1 ? 99 : aP) - (bP === -1 ? 99 : bP);
-    });
-
-    const level = computeLevel(get().getTotalXP());
-    const target = getQuestTarget(level);
-
-    return sorted
-      .filter((q) => q.id !== activeQuestId && !completedQuests.includes(q.id))
-      .slice(0, 3)
-      .map((q) => ({
-        ...q,
-        target,
-        xp: getQuestXP(q, target),
-        progress: collection.filter((c) => c.category === q.category).length,
-      }));
-  },
-
-  /**
-   * Returns today's daily challenge, seeded by date + interests.
-   * Resets automatically at midnight.
-   */
-  getDailyChallenge: () => {
-    const { interests, collection, visitorType, dailyClaimed } = get();
-    const catMap = {
-      architecture: 'Architecture', food: 'Food', history: 'History',
-      art: 'Art', nature: 'Nature', nightlife: 'Nightlife',
-    };
-    const cats = interests.map((i) => catMap[i]).filter(Boolean);
-    if (!cats.length) return null;
-
-    // Deterministic day-seeded category pick (same for all with same interests on same day)
-    const dayNum = Math.floor(Date.now() / 86400000);
-    const category = cats[dayNum % cats.length];
-    // Locals get 2-stop challenge every other day, tourists always get 1
-    const target = visitorType === 'local' && dayNum % 2 === 0 ? 2 : 1;
-
-    // Count check-ins made today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const progress = collection.filter(
-      (c) => c.category === category && new Date(c.checkedInAt) >= today
-    ).length;
-
-    const todayStr = new Date().toDateString();
-    const claimed = !!dailyClaimed[todayStr];
-    const achieved = progress >= target;
-
-    return {
-      category,
-      emoji: DAILY_CATEGORY_EMOJIS[category] || '📍',
-      target,
-      progress: Math.min(progress, target),
-      xpBonus: target * 75,
-      achieved,
-      claimed,
-    };
-  },
-
-  getExplorerType: () => {
-    const { collection, interests } = get();
-    if (!collection.length) {
-      const catMap = {
-        architecture: 'Architecture', food: 'Food', history: 'History',
-        art: 'Art', nature: 'Nature', nightlife: 'Nightlife',
-      };
-      const cat = catMap[interests[0]];
-      return EXPLORER_TYPES[cat] || { type: 'Newcomer', desc: 'Just getting started.' };
-    }
-    const counts = {};
-    collection.forEach((c) => { counts[c.category] = (counts[c.category] || 0) + 1; });
-    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-    return EXPLORER_TYPES[top?.[0]] || { type: 'Urban Explorer', desc: 'No corner goes unchecked.' };
-  },
 
   getDNAStats: () => {
     const { collection } = get();
@@ -426,28 +256,40 @@ const useStore = create((set, get) => ({
     };
   },
 
-  // ─── Persistence ──────────────────────────────────────────────────────────
+  getExplorerType: () => {
+    const { collection, interests } = get();
+    if (!collection.length) {
+      const catMap = {
+        architecture: 'Architecture', food: 'Food', history: 'History',
+        art: 'Art', nature: 'Nature', nightlife: 'Nightlife',
+      };
+      const cat = catMap[interests[0]] || 'Architecture';
+      return EXPLORER_TYPES[cat] || { type: 'Newcomer', desc: 'Just getting started.' };
+    }
+    const counts = {};
+    collection.forEach((c) => { counts[c.category] = (counts[c.category] || 0) + 1; });
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    return EXPLORER_TYPES[top?.[0]] || { type: 'Urban Explorer', desc: 'No corner goes unchecked.' };
+  },
+
+  // ─── Internal ─────────────────────────────────────────────────────────────
 
   _persist: async () => {
     const {
-      hasOnboarded, userName, interests, visitorType, collection,
-      activeQuestId, completedQuests, questBonusXP, dailyClaimed,
-    } = get();
-    const {
       hasOnboarded, userName, interests, collection,
-      activeQuestId, preferences, quests, communities, userBadges
+      activeQuestId, preferences, quests, 
+      communities, userBadges, completedQuests, 
+      questBonusXP, dailyClaimed,
     } = get();
     try {
       await AsyncStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
           hasOnboarded, userName, interests, collection,
-          activeQuestId, preferences, quests, communities, userBadges
-        }),
-        JSON.stringify({
-          hasOnboarded, userName, interests, visitorType, collection,
-          activeQuestId, completedQuests, questBonusXP, dailyClaimed,
-        }),
+          activeQuestId, preferences, quests, 
+          communities, userBadges, completedQuests, 
+          questBonusXP, dailyClaimed,
+        })
       );
     } catch {}
   },
@@ -479,7 +321,6 @@ const useStore = create((set, get) => ({
       if (serverCollection?.length) updates.collection = serverCollection;
       if (profile) {
         if (profile.display_name) updates.userName = profile.display_name;
-        if (profile.visitor_type) updates.visitorType = profile.visitor_type;
         if (profile.preferences) updates.preferences = profile.preferences;
         if (profile.interests?.length) {
           updates.interests = profile.interests;

@@ -317,102 +317,65 @@ class RouteService {
    * weather, visitor type, and difficulty all influence landmark ordering.
    */
   buildRoute(start, landmarks, timeBudget, context = {}) {
-    const route    = [];
-  async getRouteById(id) {
-    const result = await query('SELECT * FROM routes WHERE id = $1', [id]);
-    return result.rows[0] || null;
-  }
-
-  /**
-   * Build route using nearest-neighbor heuristic.
-   * @param {object} start - Starting coordinates
-   * @param {Array} landmarks - Available landmarks
-   * @param {number} timeBudget - Available time in minutes
-   * @param {string} groupContext - User companion context
-   * @param {number} batteryLevel - Device battery level (0-100)
-   * @returns {Array} Ordered landmarks
-   */
-  buildRoute(start, landmarks, timeBudget, preferences = {}, batteryLevel = 100) {
     const route = [];
     const remaining = [...landmarks];
-    let current    = start;
-    let totalTime  = 0;
+    let current = start;
+    let totalTime = 0;
 
-    const groupContext = preferences.group_context || 'solo';
-
-    // Learned parameters (Priority 4 & 8)
-    const userWalkingPace = preferences.walking_speed_kmh || 4.5;
-    const dwellMultipliers = preferences.category_dwell_multipliers || {};
+    const userWalkingPace = context.walking_speed_kmh || 4.5;
+    const dwellTimes = context.dwellTimes || null;
 
     while (remaining.length > 0 && totalTime < timeBudget) {
-      let bestIdx   = -1;
+      let bestIdx = -1;
       let bestScore = -Infinity;
 
-      let bestIdx = 0;
-      let bestPriority = -1;
-      let bestDist = Infinity;
       for (let i = 0; i < remaining.length; i++) {
         const lm = remaining[i];
-        const dist      = calculateDistance(current.latitude, current.longitude, lm.latitude, lm.longitude);
-        const walkTime  = (dist / 4.5) * 60;
-        const visitTime = getVisitTime(lm, context.dwellTimes); // ← learned dwell time
+        
+        const dist = calculateDistance(
+          current.latitude, current.longitude,
+          lm.latitude, lm.longitude
+        );
+        
+        // Critical Battery Constraint (from context/batteryLevel)
+        if (context.batteryLevel < 10 && dist > 0.5) continue;
+
+        // Group mobility constraints
+        if ((context.groupContext === 'kids' || context.groupContext === 'elderly') && dist > 0.6) continue;
+
+        const walkTime = (dist / userWalkingPace) * 60;
+        const visitTime = getVisitTime(lm, dwellTimes);
 
         if (totalTime + walkTime + visitTime > timeBudget) continue;
 
+        // Composite scoring (Priority 10)
         const score = calculateScore(lm, current, context);
-        if (score > bestScore) {
-          bestScore = score;
-          bestIdx   = i;
-        const dist = calculateDistance(
-          current.latitude,
-          current.longitude,
-          remaining[i].latitude,
-          remaining[i].longitude
-        );
+        
+        // Final priority = Score / (Distance + 0.1) to favor closer high-scoring spots
+        const priority = score / (dist + 0.1);
 
-        // Critical Battery Constraint: only landmarks within 500m
-        if (batteryLevel < 10 && dist > 0.5) {
-          continue;
-        }
-
-        // Cap leg distance for elderly and kids context (~600m max)
-        if ((groupContext === 'kids' || groupContext === 'elderly') && dist > 0.6) {
-          continue;
-        }
-
-        // Priority = Score / (Distance + 0.1)
-        // We use 0.1 to avoid division by zero and give a small floor to distance
-        const priority = remaining[i]._score / (dist + 0.1);
-
-      if (bestIdx === -1) break;
-        if (priority > bestPriority) {
-          bestPriority = priority;
+        if (priority > bestScore) {
+          bestScore = priority;
           bestIdx = i;
-          bestDist = dist;
         }
       }
 
-      // Calculate time using learned pace and dwell multipliers
-      const walkTime = (bestDist / userWalkingPace) * 60;
+      if (bestIdx === -1) break;
 
-      const landmark = remaining[bestIdx];
-      const categoryMultiplier = dwellMultipliers[landmark.category] || 1.0;
-      const visitTime = (landmark.avg_visit_duration_min || 30) * categoryMultiplier;
-
-      const lm        = remaining[bestIdx];
-      const dist      = calculateDistance(current.latitude, current.longitude, lm.latitude, lm.longitude);
-      const walkTime  = (dist / 4.5) * 60;
-      const visitTime = getVisitTime(lm, context.dwellTimes);
+      const lm = remaining[bestIdx];
+      const dist = calculateDistance(current.latitude, current.longitude, lm.latitude, lm.longitude);
+      const walkTime = (dist / userWalkingPace) * 60;
+      const visitTime = getVisitTime(lm, dwellTimes);
 
       remaining.splice(bestIdx, 1);
       route.push({
         ...lm,
-        order:                  route.length + 1,
-        estimated_arrival_min:  Math.round(totalTime + walkTime),
-        visit_duration_min:     visitTime,  // expose to client so UI can show personalised estimate
+        order: route.length + 1,
+        estimated_arrival_min: Math.round(totalTime + walkTime),
+        visit_duration_min: visitTime,
       });
 
-      current    = { latitude: lm.latitude, longitude: lm.longitude };
+      current = { latitude: lm.latitude, longitude: lm.longitude };
       totalTime += walkTime + visitTime;
     }
 

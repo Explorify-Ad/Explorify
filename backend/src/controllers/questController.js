@@ -1,4 +1,5 @@
 const QuestService = require('../services/questService');
+const { query } = require('../config/database');
 
 /**
  * Controller for Quest and Gamification features.
@@ -26,7 +27,6 @@ const joinCommunity = async (req, res, next) => {
 
 const getCommunities = async (req, res, next) => {
   try {
-    const { query } = require('../config/database');
     const result = await query('SELECT * FROM communities');
     res.json({ data: result.rows });
   } catch (err) {

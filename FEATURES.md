@@ -197,7 +197,5 @@ Backend JOINs `collections` + `landmarks` to compute per-user per-category avg d
 |---------|-------|
 | CV Camera Landmark ID | Plan file exists at `~/.claude/plans/ethereal-tumbling-sprout.md`. Uses Google Cloud Vision `LANDMARK_DETECTION`. Needs `expo-camera` install + Vision API key. |
 | Repeat-Visit Avoidance | Score-down already-visited landmarks in route service. Zero new data — collection is available. |
-| Route Generation UI | Mobile screen to call the backend route API with user context (weather, battery, visitor type, category counts). |
 | DM / Direct Messages | `messages` table supports DMs (`dm_peer_id`). `sendDirectMessage` / `fetchDirectMessages` in `supabase.js`. UI not built. |
-| Dwell Time Tracking | `dwell_time_min` column exists in `collections`. Need to track time between "arrive" and "check in" in `LandmarkDetailScreen`. |
 | Group / Social Context | "Who are you exploring with?" selector (Solo / Kids / Elderly / Group) before route gen. |

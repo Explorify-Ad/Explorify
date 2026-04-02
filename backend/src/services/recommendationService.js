@@ -13,6 +13,7 @@ class RecommendationService {
    */
   async getRecommendations({ userId, lat, lng, preferences = {} }) {
     const result = await query('SELECT * FROM landmarks');
+    // console.log('DEBUG: landmarks result:', result.rows);
     const landmarks = result.rows;
 
     // Get weather context
@@ -125,6 +126,9 @@ class RecommendationService {
       if (tags.includes('hidden-gem') || tags.includes('off-the-beaten-path')) {
         score += 20;
         reasons.push('Local Hidden Gem');
+      } else if (landmark.points >= 30 || tags.includes('iconic')) {
+        score -= 15;
+        reasons.push('Avoid Crowd');
       }
     }
 

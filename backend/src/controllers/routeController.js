@@ -1,4 +1,5 @@
 const routeService = require('../services/routeService');
+const { query } = require('../config/database');
 
 /**
  * Generate an optimized route.

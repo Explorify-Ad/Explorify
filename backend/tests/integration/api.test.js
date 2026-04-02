@@ -1,8 +1,3 @@
-const request = require('supertest');
-const app = require('../../src/server');
-const { query } = require('../../src/config/database');
-const supabase = require('../../src/config/supabase');
-
 jest.mock('../../src/config/database');
 jest.mock('../../src/services/weatherService');
 jest.mock('../../src/config/supabase', () => ({
@@ -11,16 +6,22 @@ jest.mock('../../src/config/supabase', () => ({
   }
 }));
 
+const request = require('supertest');
+const app = require('../../src/server');
+const { query } = require('../../src/config/database');
+const supabase = require('../../src/config/supabase');
+
 describe('Adaptive API Workflows', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     // Default: Authenticated user
-    supabase.auth.getUser.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null });
+    supabase.auth.getUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'test@example.com' } }, error: null });
   });
 
   describe('Group Sync Workflow', () => {
     test('should create a group and return invite code', async () => {
       const mockGroup = { id: 'g1', invite_code: 'ABCDEF', created_by: 'u1' };
+      query.mockResolvedValueOnce({ rows: [{ id: 'u1' }] }); // Auth middleware check
       query.mockResolvedValueOnce({ rows: [mockGroup] }); // Insert group
       query.mockResolvedValueOnce({ rows: [] }); // Join group (void)
 
@@ -40,7 +41,8 @@ describe('Adaptive API Workflows', () => {
           { preferences: { preferred_categories: ['park'] }, accessibility_needs: 0 }
         ]
       };
-      query.mockResolvedValue(mockMembers);
+      query.mockResolvedValueOnce({ rows: [{ id: 'u1' }] }); // Auth middleware
+      query.mockResolvedValueOnce(mockMembers); // Group members
 
       const res = await request(app)
         .get('/api/groups/g1/preferences')
