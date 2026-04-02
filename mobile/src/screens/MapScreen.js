@@ -7,13 +7,14 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TopHUD } from '../components/explorify/TopHUD';
 import TomTomMap from '../components/explorify/TomTomMap';
 import { useTheme } from '../context/ThemeContext';
 import { getCurrentLocation } from '../services/location';
 import { fetchAllLandmarks, fetchActiveExpeditions } from '../services/supabase';
+import { buildPreferences } from '../utils/recommendations';
 import useStore from '../store/useStore';
 import useBattery from '../hooks/useBattery';
 
@@ -23,7 +24,10 @@ export default function MapScreen() {
   const { theme, setMode } = useTheme();
 
   const getActiveQuest = useStore((s) => s.getActiveQuest);
-  const authUser = useStore((s) => s.authUser);
+  const authUser    = useStore((s) => s.authUser);
+  const interests   = useStore((s) => s.interests);
+  const visitorType = useStore((s) => s.visitorType);
+  const collection  = useStore((s) => s.collection);
   const activeQuest = getActiveQuest();
   const { tier: batteryTier, batteryLevel, isCharging } = useBattery();
 
@@ -58,7 +62,27 @@ export default function MapScreen() {
         fetchActiveExpeditions(loc.latitude, loc.longitude),
       ]);
       setLandmarks(results || []);
-      setExpeditions(exps || []);
+
+      // Read store state at call time so loadNearby needs no closure dependencies.
+      // This avoids recreating the callback on every collection/interests update,
+      // which would cause repeated WebView reloads and make expedition pins vanish.
+      const { interests: ints, visitorType: vt, collection: col } = useStore.getState();
+      const preferences = buildPreferences({ interests: ints, visitorType: vt, collection: col });
+      const userCats = new Set(preferences.preferred_categories);
+      const withMatch = (exps || []).map((exp) => {
+        const expCats = exp.categories || [];
+        if (!expCats.length) return { ...exp, dnaMatch: 50 };
+        const catCounts = preferences.category_counts || {};
+        let score = 0;
+        expCats.forEach((cat) => {
+          if (userCats.has(cat)) score += 40;
+          if ((catCounts[cat] || 0) >= 3) score += 20;
+          else if ((catCounts[cat] || 0) >= 1) score += 8;
+        });
+        const raw = Math.round(score / expCats.length);
+        return { ...exp, dnaMatch: Math.max(28, Math.min(97, raw + 30)) };
+      });
+      setExpeditions(withMatch);
     } catch (e) {
       console.warn('MapScreen data load error:', e?.message || e);
     } finally {
@@ -66,9 +90,15 @@ export default function MapScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    loadNearby();
+  // Re-fetch whenever the screen comes into focus (handles back-navigation after
+  // creating an expedition, joining/leaving, etc.)
+  useFocusEffect(
+    useCallback(() => {
+      loadNearby();
+    }, [loadNearby]),
+  );
 
+  useEffect(() => {
     Animated.parallel([
       Animated.timing(questY, {
         toValue: 0,
@@ -83,7 +113,7 @@ export default function MapScreen() {
         useNativeDriver: true,
       }),
     ]).start();
-  }, [loadNearby, questOpacity, questY]);
+  }, [questOpacity, questY]);
 
   const openSheet = () => {
     setShowSheet(true);
@@ -134,7 +164,7 @@ export default function MapScreen() {
         created_by: exp.created_by,
         memberCount: exp.members?.length || 0,
         categories: exp.categories || [],
-        dnaMatch: 90,
+        dnaMatch: exp.dnaMatch ?? 60,
         // Pass both display initials AND raw member objects for membership check
         members: (exp.members || []).map((m) => m.user_name?.[0] || '?'),
         memberIds: (exp.members || []).map((m) => m.user_id),

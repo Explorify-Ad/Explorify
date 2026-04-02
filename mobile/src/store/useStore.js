@@ -260,6 +260,39 @@ const useStore = create((set, get) => ({
     };
   },
 
+  /**
+   * Returns categories sorted by affinity score (0–100).
+   * Recent check-ins are weighted more heavily (exponential decay over 90 days).
+   */
+  getCategoryAffinities: () => {
+    const { collection } = get();
+    if (!collection.length) return [];
+    const now = Date.now();
+    const weights = {};
+    collection.forEach((c) => {
+      if (!c.category) return;
+      const daysAgo = (now - new Date(c.checkedInAt).getTime()) / 86400000;
+      const weight = Math.exp(-daysAgo / 45); // half-life ≈ 45 days
+      weights[c.category] = (weights[c.category] || 0) + weight;
+    });
+    const maxW = Math.max(...Object.values(weights), 1);
+    return Object.entries(weights)
+      .sort((a, b) => b[1] - a[1])
+      .map(([category, w]) => ({ category, affinity: Math.round((w / maxW) * 100) }));
+  },
+
+  /**
+   * Returns which tiers are unlocked based on the user's current XP level.
+   * public: always; discovered: Level 2+; hidden: Level 6+.
+   * Thresholds:  Level 1 = 0–499 XP, Level 6 = 2,500–2,999 XP.
+   * This means Sophie (0 XP) = public only; Alice (~2,180 XP) = discovered;
+   * Marco (~2,720 XP) = all tiers; Dev (5,000 XP) = all tiers.
+   */
+  getUnlockedTiers: () => {
+    const level = computeLevel(get().getTotalXP());
+    return { public: true, discovered: level >= 2, hidden: level >= 6 };
+  },
+
   getExplorerType: () => {
     const { collection, interests } = get();
     if (!collection.length) {
