@@ -25,17 +25,17 @@ export const buildRoute = (start, landmarks, timeBudgetMin) => {
     let nearestDist = Infinity;
 
     for (let i = 0; i < remaining.length; i++) {
-      const dist = calculateDistance(
-        current.latitude,
-        current.longitude,
-        remaining[i].latitude,
-        remaining[i].longitude
-      );
+      const lmLat = remaining[i].lat ?? remaining[i].latitude;
+      const lmLon = remaining[i].lon ?? remaining[i].longitude;
+      if (lmLat == null || lmLon == null) continue;
+      const dist = calculateDistance(current.latitude, current.longitude, lmLat, lmLon);
       if (dist < nearestDist) {
         nearestDist = dist;
         nearestIdx = i;
       }
     }
+
+    if (nearestDist === Infinity) break; // no valid landmarks left
 
     const walkTime = (nearestDist / 4.5) * 60; // moderate pace
     const visitTime = remaining[nearestIdx].avg_visit_duration_min || 30;
@@ -44,7 +44,10 @@ export const buildRoute = (start, landmarks, timeBudgetMin) => {
 
     const landmark = remaining.splice(nearestIdx, 1)[0];
     route.push(landmark);
-    current = { latitude: landmark.latitude, longitude: landmark.longitude };
+    current = {
+      latitude: landmark.lat ?? landmark.latitude,
+      longitude: landmark.lon ?? landmark.longitude,
+    };
     totalTime += walkTime + visitTime;
   }
 

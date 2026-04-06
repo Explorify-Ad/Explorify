@@ -1,17 +1,20 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, Pressable, Animated, ScrollView,
-  TextInput, StyleSheet, KeyboardAvoidingView, Platform,
+  TextInput, StyleSheet, KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, MoreVertical, MapPin, Send } from 'lucide-react-native';
+import { ArrowLeft, MoreVertical, MapPin, Send, Users, LogOut, StopCircle, X } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import {
   OwnMessage, OtherMessage, CheckInShare,
   WaypointVote, SystemMessage,
 } from '../components/explorify/ChatBubbles';
-import { fetchMessages, sendMessage, subscribeToMessages, unsubscribe } from '../services/supabase';
+import {
+  fetchMessages, sendMessage, subscribeToMessages, unsubscribe,
+  leaveExpedition, updateExpeditionStatus, fetchExpeditionMembers,
+} from '../services/supabase';
 import useStore from '../store/useStore';
 
 const CORAL = '#FF6B6B';
@@ -34,7 +37,69 @@ export default function ExpeditionChatScreen() {
   const [messages, setMessages]   = useState([]);
   const [message, setMessage]     = useState('');
   const [sending, setSending]     = useState(false);
+  const [menuOpen, setMenuOpen]   = useState(false);
+  const [members, setMembers]     = useState([]);
+  const menuY                     = useRef(new Animated.Value(300)).current;
+  const menuOverlay               = useRef(new Animated.Value(0)).current;
   const channelRef                = useRef(null);
+
+  const isCreator = authUser?.id === expedition.created_by;
+
+  const openMenu = () => {
+    setMenuOpen(true);
+    fetchExpeditionMembers(expedition.id).then(setMembers).catch(() => {});
+    Animated.parallel([
+      Animated.spring(menuY, { toValue: 0, damping: 24, stiffness: 260, useNativeDriver: true }),
+      Animated.timing(menuOverlay, { toValue: 1, duration: 200, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const closeMenu = () => {
+    Animated.parallel([
+      Animated.timing(menuY, { toValue: 300, duration: 220, useNativeDriver: true }),
+      Animated.timing(menuOverlay, { toValue: 0, duration: 220, useNativeDriver: true }),
+    ]).start(() => setMenuOpen(false));
+  };
+
+  const handleLeave = () => {
+    closeMenu();
+    Alert.alert(
+      'Leave Expedition',
+      'You will no longer receive messages from this expedition.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave', style: 'destructive',
+          onPress: async () => {
+            try {
+              await leaveExpedition(expedition.id, authUser.id);
+              navigation.goBack();
+            } catch (e) { Alert.alert('Error', e.message); }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleEnd = () => {
+    closeMenu();
+    Alert.alert(
+      'End Expedition',
+      'This will close the expedition for all members. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'End Expedition', style: 'destructive',
+          onPress: async () => {
+            try {
+              await updateExpeditionStatus(expedition.id, 'ended');
+              navigation.goBack();
+            } catch (e) { Alert.alert('Error', e.message); }
+          },
+        },
+      ],
+    );
+  };
 
   const loadMessages = useCallback(async () => {
     if (!expedition.id) return;
@@ -164,7 +229,7 @@ export default function ExpeditionChatScreen() {
           <View style={styles.memberPill}>
             <Text style={styles.memberPillText}>{expedition.memberCount} explorers</Text>
           </View>
-          <Pressable style={styles.headerBtn}>
+          <Pressable style={styles.headerBtn} onPress={openMenu}>
             <MoreVertical size={20} color={theme.textPrimary} strokeWidth={2} />
           </Pressable>
         </View>
@@ -239,6 +304,63 @@ export default function ExpeditionChatScreen() {
           <Send size={18} color={message.trim() ? 'white' : theme.textSecondary} strokeWidth={2} />
         </Pressable>
       </View>
+      {/* ── Expedition menu ──────────────────────────────────── */}
+      {menuOpen && (
+        <>
+          <Animated.View style={[StyleSheet.absoluteFill, styles.menuOverlay, { opacity: menuOverlay }]}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeMenu} />
+          </Animated.View>
+
+          <Animated.View style={[styles.menuSheet, { paddingBottom: insets.bottom + 16, transform: [{ translateY: menuY }] }]}>
+            <View style={styles.menuHandle} />
+
+            {/* Members list */}
+            <Text style={styles.menuSectionTitle}>Members ({members.length})</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}
+              contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}>
+              {members.map((m, i) => (
+                <View key={m.user_id ?? i} style={styles.menuMemberItem}>
+                  <View style={[styles.menuMemberAvatar, { backgroundColor: CORAL }]}>
+                    <Text style={styles.menuMemberAvatarText}>{m.user_name?.[0] ?? '?'}</Text>
+                  </View>
+                  <Text style={styles.menuMemberName} numberOfLines={1}>{m.user_name ?? 'Explorer'}</Text>
+                </View>
+              ))}
+            </ScrollView>
+
+            <View style={styles.menuDivider} />
+
+            {/* Actions */}
+            {!isCreator && (
+              <Pressable style={styles.menuAction} onPress={handleLeave}>
+                <View style={[styles.menuActionIcon, { backgroundColor: '#FEF2F2' }]}>
+                  <LogOut size={18} color="#EF4444" strokeWidth={2} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuActionTitle, { color: '#EF4444' }]}>Leave Expedition</Text>
+                  <Text style={styles.menuActionSub}>You won't receive further messages</Text>
+                </View>
+              </Pressable>
+            )}
+
+            {isCreator && (
+              <Pressable style={styles.menuAction} onPress={handleEnd}>
+                <View style={[styles.menuActionIcon, { backgroundColor: '#FEF2F2' }]}>
+                  <StopCircle size={18} color="#EF4444" strokeWidth={2} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuActionTitle, { color: '#EF4444' }]}>End Expedition</Text>
+                  <Text style={styles.menuActionSub}>Closes expedition for all members</Text>
+                </View>
+              </Pressable>
+            )}
+
+            <Pressable style={styles.menuCancel} onPress={closeMenu}>
+              <Text style={styles.menuCancelText}>Cancel</Text>
+            </Pressable>
+          </Animated.View>
+        </>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -317,4 +439,46 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
   },
+
+  // Expedition menu
+  menuOverlay: { backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 50 },
+  menuSheet: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 60,
+    backgroundColor: 'white', borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingTop: 8,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.15, shadowRadius: 20, elevation: 20,
+  },
+  menuHandle: {
+    width: 40, height: 4, backgroundColor: 'rgba(0,0,0,0.12)',
+    borderRadius: 2, alignSelf: 'center', marginBottom: 16,
+  },
+  menuSectionTitle: {
+    fontSize: 12, fontWeight: '700', color: '#9CA3AF',
+    letterSpacing: 0.5, paddingHorizontal: 20, marginBottom: 10,
+  },
+  menuMemberItem: { alignItems: 'center', gap: 6, width: 56 },
+  menuMemberAvatar: {
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  menuMemberAvatarText: { color: 'white', fontWeight: '700', fontSize: 16 },
+  menuMemberName: { fontSize: 10, color: '#6B7280', fontWeight: '500', textAlign: 'center' },
+  menuDivider: { height: 1, backgroundColor: 'rgba(0,0,0,0.06)', marginHorizontal: 20, marginBottom: 8 },
+  menuAction: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingHorizontal: 20, paddingVertical: 14,
+  },
+  menuActionIcon: {
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  menuActionTitle: { fontSize: 15, fontWeight: '600' },
+  menuActionSub: { fontSize: 12, color: '#9CA3AF', marginTop: 1 },
+  menuCancel: {
+    alignItems: 'center', paddingVertical: 16,
+    marginHorizontal: 20, marginTop: 4,
+    borderRadius: 16, backgroundColor: '#f9fafb',
+  },
+  menuCancelText: { fontSize: 15, fontWeight: '600', color: '#6B7280' },
 });

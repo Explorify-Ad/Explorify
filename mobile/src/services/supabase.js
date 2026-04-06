@@ -104,11 +104,12 @@ export async function fetchCollections(userId) {
 
 // ─── User Profile ─────────────────────────────────────────────────────────────
 
-export async function saveUserProfile(userId, { displayName, interests }) {
+export async function saveUserProfile(userId, { displayName, interests, visitorType }) {
   const { error } = await supabase.from('user_profiles').upsert({
     id: userId,
     display_name: displayName,
     interests,
+    visitor_type: visitorType ?? 'tourist',
     updated_at: new Date().toISOString(),
   });
   if (error) console.warn('saveUserProfile error:', error.message);
@@ -122,6 +123,56 @@ export async function fetchUserProfile(userId) {
     .single();
   if (error) return null;
   return data;
+}
+
+// ─── Adaptive routing helpers ─────────────────────────────────────────────────
+
+/**
+ * Returns per-category average dwell times (minutes) for a user, keyed by
+ * normalised category name (e.g. { History: 42, Art: 18 }).
+ * Used to personalise the route service's visit-time estimates.
+ */
+export async function fetchUserDwellTimes(userId) {
+  const { data, error } = await supabase
+    .from('collections')
+    .select('landmark_category, dwell_time_min')
+    .eq('user_id', userId)
+    .not('dwell_time_min', 'is', null)
+    .gt('dwell_time_min', 0);
+  if (error || !data?.length) return null;
+
+  const totals = {};
+  const counts = {};
+  data.forEach(({ landmark_category, dwell_time_min }) => {
+    if (!landmark_category) return;
+    totals[landmark_category] = (totals[landmark_category] || 0) + dwell_time_min;
+    counts[landmark_category] = (counts[landmark_category] || 0) + 1;
+  });
+
+  const avgs = {};
+  Object.keys(totals).forEach((cat) => {
+    avgs[cat] = Math.round(totals[cat] / counts[cat]);
+  });
+  return avgs; // { History: 42, Art: 18, ... }
+}
+
+/**
+ * Returns how many times a user has visited each category.
+ * Passed to the route service as preferences.category_counts so the novelty
+ * bonus can boost under-explored categories.
+ */
+export async function fetchCategoryCounts(userId) {
+  const { data, error } = await supabase
+    .from('collections')
+    .select('landmark_category')
+    .eq('user_id', userId);
+  if (error || !data?.length) return null;
+
+  const counts = {};
+  data.forEach(({ landmark_category }) => {
+    if (landmark_category) counts[landmark_category] = (counts[landmark_category] || 0) + 1;
+  });
+  return counts; // { History: 8, Nature: 1, ... }
 }
 
 // ─── Expeditions ──────────────────────────────────────────────────────────────
@@ -180,7 +231,24 @@ export async function fetchExpeditionMembers(expeditionId) {
   return data;
 }
 
-export async function fetchActiveExpeditions(userLat, userLon, radiusMeters = 2000) {
+/**
+ * Auto-end any active expedition that was created more than 24 hours ago.
+ * Called silently on each fetchActiveExpeditions load.
+ */
+export async function autoExpireExpeditions() {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { error } = await supabase
+    .from('expeditions')
+    .update({ status: 'ended' })
+    .eq('status', 'active')
+    .lt('created_at', cutoff);
+  if (error) console.warn('autoExpireExpeditions error:', error.message);
+}
+
+export async function fetchActiveExpeditions(userLat, userLon, radiusMeters = 10000) {
+  // Silently expire stale expeditions before fetching
+  autoExpireExpeditions().catch(() => {});
+
   const { haversineDistance } = require('./tomtom');
   const { data, error } = await supabase
     .from('expeditions')
@@ -206,6 +274,31 @@ export async function updateExpeditionStatus(expeditionId, status) {
     .update({ status })
     .eq('id', expeditionId);
   if (error) throw error;
+}
+
+/** All expeditions the user has joined (active + ended), newest first. */
+export async function fetchMyExpeditions(userId) {
+  const { data: memberships, error: me } = await supabase
+    .from('expedition_members')
+    .select('expedition_id')
+    .eq('user_id', userId);
+  if (me) throw me;
+
+  const ids = (memberships || []).map((m) => m.expedition_id);
+  if (!ids.length) return [];
+
+  const { data, error } = await supabase
+    .from('expeditions')
+    .select('*, expedition_members(user_id, user_name)')
+    .in('id', ids)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+
+  return (data || []).map((exp) => ({
+    ...exp,
+    members: exp.expedition_members ?? [],
+    isCreator: exp.created_by === userId,
+  }));
 }
 
 // ─── Messages ─────────────────────────────────────────────────────────────────

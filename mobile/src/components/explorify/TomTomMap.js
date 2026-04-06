@@ -33,11 +33,18 @@ function buildHTML(lat, lon, landmarks, expeditions = []) {
         wrap.appendChild(ring);
         wrap.appendChild(dot);
 
+        var _ex = 0, _ey = 0, _emoved = false;
         wrap.addEventListener('touchstart', function(e) {
           e.stopPropagation(); e.preventDefault();
+          _ex = e.touches[0].clientX; _ey = e.touches[0].clientY; _emoved = false;
         }, { passive: false });
+        wrap.addEventListener('touchmove', function(e) {
+          var dx = e.touches[0].clientX - _ex, dy = e.touches[0].clientY - _ey;
+          if (Math.sqrt(dx*dx + dy*dy) > 8) _emoved = true;
+        }, { passive: true });
         wrap.addEventListener('touchend', function(e) {
           e.stopPropagation();
+          if (_emoved) return;
           window.ReactNativeWebView.postMessage(
             JSON.stringify({ type: 'expeditionPress', id: '${exp.id}' })
           );
@@ -97,14 +104,23 @@ function buildHTML(lat, lon, landmarks, expeditions = []) {
 
           wrap.onmouseenter = function() { wrap.style.transform = 'scale(1.25)'; };
           wrap.onmouseleave = function() { wrap.style.transform = 'scale(1)'; };
-          // Use touchstart+preventDefault to block MapboxGL from receiving the
-          // touch as a pan gesture, then fire on touchend.
+          // touchstart: block the map from panning, record start position
+          var _tx = 0, _ty = 0, _moved = false;
           wrap.addEventListener('touchstart', function(e) {
             e.stopPropagation();
             e.preventDefault();
+            _tx = e.touches[0].clientX;
+            _ty = e.touches[0].clientY;
+            _moved = false;
           }, { passive: false });
+          wrap.addEventListener('touchmove', function(e) {
+            var dx = e.touches[0].clientX - _tx;
+            var dy = e.touches[0].clientY - _ty;
+            if (Math.sqrt(dx*dx + dy*dy) > 8) _moved = true;
+          }, { passive: true });
           wrap.addEventListener('touchend', function(e) {
             e.stopPropagation();
+            if (_moved) return; // was a pan gesture, ignore
             wrap.style.transform = 'scale(1.25)';
             setTimeout(function() { wrap.style.transform = 'scale(1)'; }, 150);
             window.ReactNativeWebView.postMessage(
