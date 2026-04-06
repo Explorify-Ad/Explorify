@@ -2,7 +2,7 @@
   "name": "explorify-mobile",
   "version": "1.0.0",
   "description": "Explorify Mobile App - React Native Expo",
-  "main": "index.js",
+  "main": "index.js", 
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",

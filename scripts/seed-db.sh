@@ -6,7 +6,7 @@
 
 set -e
 
-echo "🌍 Explorify Database Seeding"
+echo "Explorify Database Seeding"
 echo "================================"
 
 # Check for DATABASE_URL
@@ -17,11 +17,11 @@ if [ -z "$DATABASE_URL" ]; then
 fi
 
 if [ -z "$DATABASE_URL" ]; then
-  echo "❌ DATABASE_URL is not set. Please set it in your .env file."
+  echo "DATABASE_URL is not set. Please set it in your .env file."
   exit 1
 fi
 
-echo "📋 Running database migrations..."
+echo "Running database migrations..."
 
 # Run migrations in order
 for migration in database/migrations/*.sql; do
@@ -29,10 +29,10 @@ for migration in database/migrations/*.sql; do
   psql "$DATABASE_URL" -f "$migration"
 done
 
-echo "✅ Migrations complete"
+echo "Migrations complete"
 
 echo ""
-echo "🌱 Seeding database..."
+echo "Seeding database..."
 
 # Run seed files
 for seed in database/seeds/*.sql; do
@@ -40,6 +40,6 @@ for seed in database/seeds/*.sql; do
   psql "$DATABASE_URL" -f "$seed"
 done
 
-echo "✅ Seeding complete"
+echo "Seeding complete"
 echo ""
-echo "🎉 Database is ready!"
+echo "Database is ready!"
