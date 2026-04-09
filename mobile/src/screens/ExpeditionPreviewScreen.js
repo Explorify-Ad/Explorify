@@ -13,6 +13,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { X, MapPin, Clock, Users, Zap, ChevronRight, Check } from 'lucide-react-native';
+import { useTheme } from '../context/ThemeContext';
 import { LevelBadge } from '../components/explorify/Badges';
 import { CATEGORY_COLORS } from '../utils/theme';
 import { CATEGORY_ICONS } from '../components/explorify/PinDetailModal';
@@ -21,6 +22,7 @@ import useStore from '../store/useStore';
 
 const { height: H } = Dimensions.get('window');
 const CORAL  = '#FF6B6B';
+const TEAL   = '#0D9488';
 const HERO_H = 260;
 
 // Simple deterministic colour per initial letter
@@ -31,6 +33,7 @@ export default function ExpeditionPreviewScreen() {
   const navigation = useNavigation();
   const route      = useRoute();
   const insets     = useSafeAreaInsets();
+  const { theme }  = useTheme();
 
   const expedition = route.params?.expedition ?? {
     id: '1',
@@ -262,6 +265,7 @@ export default function ExpeditionPreviewScreen() {
               <Text style={styles.infoLabel}>Starts in</Text>
               <Text style={styles.infoValue}>{expedition.startsIn || 'Now'}</Text>
             </View>
+          </View>
         {/* DNA match & Company Type */}
         <View style={styles.dnaRow}>
           <View style={styles.dnaPill}>
@@ -317,6 +321,7 @@ export default function ExpeditionPreviewScreen() {
               {expedition.meetingPoint}
             </Text>
           </View>
+        </View>
 
         </ScrollView>
 
@@ -442,6 +447,7 @@ const styles = StyleSheet.create({
   matchBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 100,
+  },
   avatarText: { color: 'white', fontWeight: '700', fontSize: 16 },
   levelPos: { position: 'absolute', bottom: -4, right: -8 },
   leaderName: { fontSize: 15, fontWeight: '600' },
@@ -472,6 +478,7 @@ const styles = StyleSheet.create({
   },
   leaderAvatar: {
     width: 48, height: 48, borderRadius: 24,
+  },
   companyBadgeText: { fontSize: 12, fontWeight: '700' },
   reasonsContainer: {
     backgroundColor: 'rgba(13,148,136,0.05)',

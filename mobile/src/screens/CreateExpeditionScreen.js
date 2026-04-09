@@ -7,8 +7,8 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, MapPin, ChevronDown, Plus, Minus, Building2, Utensils, Trees, Landmark, Palette, Music } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
-import { createExpedition } from '../services/supabase';
 import useStore from '../store/useStore';
+import api from '../services/api';
 
 const CORAL = '#FF6B6B';
 
@@ -25,9 +25,12 @@ const DURATIONS = ['30min', '1hr', '2hr', 'Half Day', 'Custom'];
 
 const COMPANY_TYPES = [
   { id: 'solo',      label: 'Solo',      icon: '🧍' },
-  { id: 'duo',       label: 'Duo',       icon: '👫' },
+  { id: 'date',      label: 'Date',      icon: '👫' },
+  { id: 'duo',       label: 'Duo',       icon: '👯' },
   { id: 'family',    label: 'Family',    icon: '👨‍👩‍👧‍👦' },
   { id: 'friends',   label: 'Friends',   icon: '👥' },
+  { id: 'kids',      label: 'With Kids', icon: '🧸' },
+  { id: 'elderly',   label: 'Elderly',   icon: '🧓' },
   { id: 'community', label: 'Community', icon: '🏛️' },
 ];
 
@@ -61,34 +64,45 @@ export default function CreateExpeditionScreen() {
 
   const isValid = title.length > 0 && selected.size > 0;
 
+  const group_id = route.params?.group_id;
+
   const handleLaunch = async () => {
     if (!isValid || launching) return;
     setLaunching(true);
     try {
-      const exp = await createExpedition(authUser.id, authUser.name, {
+      const payload = {
         title,
         description,
         categories: [...selected],
-        groupSize,
-        companyType,
+        group_size: groupSize,
         duration,
-        dnaOnly,
-        landmarkId:   meetingPoint?.id   ?? null,
-        landmarkName: meetingPoint?.name ?? null,
-        landmarkLat:  meetingPoint?.lat  ?? null,
-        landmarkLon:  meetingPoint?.lon  ?? null,
-      });
-      navigation.replace('ExpeditionChat', {
-        expedition: {
-          id: exp.id,
-          title: exp.title,
-          memberCount: 1,
-          categories: exp.categories,
-          landmark: meetingPoint ? { name: meetingPoint.name } : null,
-        },
-      });
+        group_id, // Pass if launched from GroupChat
+        landmark_id:   meetingPoint?.id   ?? null,
+        landmark_name: meetingPoint?.name ?? null,
+        landmark_lat:  meetingPoint?.lat  ?? null,
+        landmark_lon:  meetingPoint?.lon  ?? null,
+      };
+      
+      const response = await api.post('/expeditions', payload);
+      const exp = response.data.data;
+      
+      if (group_id) {
+        // If launched from group chat, go back to the chat so they can see the post
+        navigation.goBack();
+      } else {
+        // For standalone, navigate to the specific Expedition view/chat
+        navigation.replace('ExpeditionChat', {
+          expedition: {
+            id: exp.id,
+            title: exp.title,
+            memberCount: 1,
+            categories: exp.categories,
+            landmark: meetingPoint ? { name: meetingPoint.name } : null,
+          },
+        });
+      }
     } catch (e) {
-      console.warn('createExpedition error:', e.message);
+      console.warn('createExpedition API error:', e.message);
       setLaunching(false);
     }
   };
