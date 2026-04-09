@@ -10,11 +10,11 @@ const generateRoute = async (req, res, next) => {
     
     let mergedPreferences = preferences || {};
 
-    // Group preference aggregation
+    // Community preference aggregation
     if (group_id) {
-      const groupService = require('../services/groupService');
-      const groupPreferences = await groupService.aggregatePreferences(group_id);
-      mergedPreferences = { ...mergedPreferences, ...groupPreferences };
+      const communityService = require('../services/communityService');
+      const communityPreferences = await communityService.aggregatePreferences(group_id);
+      mergedPreferences = { ...mergedPreferences, ...communityPreferences };
     }
 
     // TODO: Add input validation

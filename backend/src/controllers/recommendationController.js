@@ -23,13 +23,13 @@ const getRecommendations = async (req, res, next) => {
       parsedPreferences = { ...req.user.preferences, ...parsedPreferences };
     }
 
-    // NEW: Group Preference Aggregation (Group Sync Priority)
-    const groupId = req.query.group_id;
-    if (groupId) {
-      const groupService = require('../services/groupService');
-      const groupPreferences = await groupService.aggregatePreferences(groupId);
-      // Group preferences take precedence for group sessions
-      parsedPreferences = { ...parsedPreferences, ...groupPreferences };
+    // NEW: Expedition Preference Aggregation (Actual joined members)
+    const expeditionId = req.query.expedition_id;
+    if (expeditionId) {
+      const expeditionService = require('../services/expeditionService');
+      const expeditionPreferences = await expeditionService.aggregateExpeditionPreferences(expeditionId);
+      // Expedition preferences represent the "Collective DNA" constraint for the route
+      parsedPreferences = { ...parsedPreferences, ...expeditionPreferences };
     }
 
     const recommendations = await recommendationService.getRecommendations({

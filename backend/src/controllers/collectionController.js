@@ -1,5 +1,5 @@
 const { query } = require('../config/database');
-const QuestService = require('../services/questService');
+const ExpeditionService = require('../services/expeditionService');
 
 /**
  * Get a user's collection of visited landmarks.
@@ -106,8 +106,8 @@ const addToCollection = async (req, res, next) => {
       );
     }
 
-    // 5. Trigger Quest & Community logic
-    const outcomes = await QuestService.handleCheckIn(userId, landmark);
+    // 5. Trigger Unified Expedition/Quest logic (Landmark Discovery)
+    const outcomes = await ExpeditionService.handleDiscovery(userId, landmark);
 
     res.status(201).json({ 
       message: 'Check-in successful',
