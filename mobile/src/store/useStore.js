@@ -99,7 +99,7 @@ const useStore = create((set, get) => ({
   fetchCommunities: async () => {
     try {
       const api = (await import('../services/api')).default;
-      const response = await api.get('/quests/communities');
+      const response = await api.get('/communities');
       set({ communities: response.data.data });
     } catch (err) {
       console.warn('fetchCommunities error:', err);
@@ -129,7 +129,7 @@ const useStore = create((set, get) => ({
   joinCommunity: async (communityId) => {
     try {
       const api = (await import('../services/api')).default;
-      await api.post('/quests/join-community', { communityId });
+      await api.post('/communities/join', { community_id: communityId });
       await get().fetchCommunities();
       await get().fetchQuests();
     } catch (err) {
@@ -226,6 +226,71 @@ const useStore = create((set, get) => ({
   },
 
   // ─── Computed Getters ─────────────────────────────────────────────────────
+  
+  getFormattedQuests: () => {
+    const bgMap = { Architecture: '#64748b', Food: '#f97316', History: '#d97706', Art: '#ec4899', Nature: '#22c55e', Nightlife: '#7c3aed' };
+    const emojiMap = { Architecture: '🏛️', Food: '🍽️', History: '⚔️', Art: '🎨', Nature: '🌿', Nightlife: '🌃' };
+    const apiQuests = get().quests;
+    const items = apiQuests.length > 0 ? apiQuests : QUESTS; // Fallback to mock if API hasn't loaded
+    return items.map(q => ({
+      ...q,
+      xp: q.reward_xp || q.baseXp || 500,
+      target: q.required_count || 3,
+      progress: q.progress_count || 0,
+      emoji: q.emoji || emojiMap[q.category] || '🗺️',
+      bg: q.bg || bgMap[q.category] || '#64748b',
+    }));
+  },
+
+  getActiveQuest: () => {
+    const fq = get().getFormattedQuests();
+    const activeId = get().activeQuestId;
+    return fq.find(q => q.id === activeId) || fq[0] || { target: 1, progress: 0, title: 'No Quest', xp: 0 };
+  },
+
+  getSuggestedQuests: () => {
+    const fq = get().getFormattedQuests();
+    const active = get().activeQuestId;
+    const completed = get().completedQuests;
+    return fq.filter(q => q.id !== active && !completed.includes(q.id));
+  },
+
+  completeQuest: async (questId) => {
+    try {
+      const api = (await import('../services/api')).default;
+      const response = await api.post(`/quests/${questId}/claim`);
+      
+      if (response.data.xp_awarded) {
+        set(state => ({ 
+          questBonusXP: state.questBonusXP + response.data.xp_awarded,
+          completedQuests: [...state.completedQuests, questId],
+          activeQuestId: null
+        }));
+        await get().fetchQuests();
+      }
+    } catch (err) {
+      console.warn('completeQuest error:', err);
+    }
+    await get()._persist();
+  },
+
+  getDailyChallenge: () => {
+    const { dailyClaimed } = get();
+    const today = new Date().toDateString();
+    return {
+      target: 3, progress: get().getStreak() > 0 ? 1 : 0, 
+      category: 'Nature', emoji: '🌿', xpBonus: 100, 
+      achieved: false, claimed: !!dailyClaimed[today]
+    };
+  },
+
+  claimDailyChallenge: () => {
+    const today = new Date().toDateString();
+    set(state => ({
+      questBonusXP: state.questBonusXP + 100,
+      dailyClaimed: { ...state.dailyClaimed, [today]: true }
+    }));
+  },
 
   getTotalXP: () =>
     get().collection.reduce((s, c) => s + (c.xpEarned || 150), 0) + get().questBonusXP,

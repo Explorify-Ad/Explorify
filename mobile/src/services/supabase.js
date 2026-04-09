@@ -341,6 +341,45 @@ export function subscribeToMessages(expeditionId, onMessage) {
     .subscribe();
 }
 
+export async function sendChannelMessage(channelId, senderId, senderName, content, type = 'text', metadata = {}) {
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({ 
+      channel_id: channelId, 
+      sender_id: senderId, 
+      sender_name: senderName,
+      content, 
+      type, 
+      metadata 
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchChannelMessages(channelId) {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('channel_id', channelId)
+    .order('created_at');
+  if (error) throw error;
+  return data;
+}
+
+export function subscribeToChannelMessages(channelId, onMessage) {
+  return supabase
+    .channel(`channel_messages:${channelId}`)
+    .on('postgres_changes', {
+      event: 'INSERT', 
+      schema: 'public', 
+      table: 'messages',
+      filter: `channel_id=eq.${channelId}`,
+    }, (payload) => onMessage(payload.new))
+    .subscribe();
+}
+
 export function subscribeToDMs(userId, onMessage) {
   return supabase
     .channel(`dm:${userId}`)

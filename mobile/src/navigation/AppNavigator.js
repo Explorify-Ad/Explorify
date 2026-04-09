@@ -9,7 +9,7 @@ import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import MapScreen from '../screens/MapScreen';
-import QuestScreen from '../screens/QuestScreen';
+import QuestsScreen from '../screens/QuestsScreen';
 import CollectionScreen from '../screens/CollectionScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import RouteBuilderScreen from '../screens/RouteBuilderScreen';
@@ -18,7 +18,8 @@ import NearbyScreen from '../screens/NearbyScreen';
 import CreateExpeditionScreen from '../screens/CreateExpeditionScreen';
 import ExpeditionPreviewScreen from '../screens/ExpeditionPreviewScreen';
 import ExpeditionChatScreen from '../screens/ExpeditionChatScreen';
-import GroupScreen from '../screens/GroupScreen';
+import CommunityScreen from '../screens/CommunityScreen';
+import CommunityChatScreen from '../screens/CommunityChatScreen';
 import MyExpeditionsScreen from '../screens/MyExpeditionsScreen';
 import HomeScreen from '../screens/HomeScreen';
 import { useTheme } from '../context/ThemeContext';
@@ -74,6 +75,8 @@ export default function AppNavigator() {
   const hydrate            = useStore((s) => s.hydrate);
   const setAuthUser        = useStore((s) => s.setAuthUser);
   const syncFromSupabase   = useStore((s) => s.syncFromSupabase);
+  const fetchQuests        = useStore((s) => s.fetchQuests);
+  const fetchCommunities   = useStore((s) => s.fetchCommunities);
 
   useEffect(() => {
     hydrate();
@@ -86,6 +89,8 @@ export default function AppNavigator() {
           email: session.user.email,
           name: session.user.user_metadata?.name || session.user.email.split('@')[0],
         }, session.access_token);
+        fetchQuests();
+        fetchCommunities();
       }
     });
 
@@ -98,6 +103,8 @@ export default function AppNavigator() {
           name: session.user.user_metadata?.name || session.user.email.split('@')[0],
         }, session.access_token);
         syncFromSupabase();
+        fetchQuests();
+        fetchCommunities();
       } else {
         setAuthUser(null, null);
       }
@@ -183,9 +190,14 @@ export default function AppNavigator() {
           component={ExpeditionChatScreen}
         />
         <Stack.Screen
-          name="Group"
-          component={GroupScreen}
-          options={{ title: 'Group Travel' }}
+          name="Community"
+          component={CommunityScreen}
+          options={{ title: 'Communities' }}
+        />
+        <Stack.Screen
+          name="CommunityChat"
+          component={CommunityChatScreen}
+          options={{ title: 'Community Chat' }}
         />
         <Stack.Screen
           name="MyExpeditions"
