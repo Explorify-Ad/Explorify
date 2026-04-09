@@ -11,6 +11,10 @@ class GroupService {
    * @returns {Promise<object>} Created group
    */
   async createGroup(userId) {
+    // Failsafe: Ensure the user exists in public.users to prevent Foreign Key Violation
+    // if the schema still points to public.users instead of auth.users
+    await query('INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [userId, `fallback_${userId}@auto.com`, 'Explorer']);
+
     const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     const result = await query(
       'INSERT INTO groups (invite_code, created_by) VALUES ($1, $2) RETURNING *',
@@ -30,6 +34,7 @@ class GroupService {
    * @param {string} userId - User UUID
    */
   async joinGroup(groupId, userId) {
+    await query('INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [userId, `fallback_${userId}@auto.com`, 'Explorer']);
     await query(
       'INSERT INTO group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
       [groupId, userId]

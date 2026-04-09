@@ -22,8 +22,10 @@ describe('Adaptive API Workflows', () => {
     test('should create a group and return invite code', async () => {
       const mockGroup = { id: 'g1', invite_code: 'ABCDEF', created_by: 'u1' };
       query.mockResolvedValueOnce({ rows: [{ id: 'u1' }] }); // Auth middleware check
-      query.mockResolvedValueOnce({ rows: [mockGroup] }); // Insert group
-      query.mockResolvedValueOnce({ rows: [] }); // Join group (void)
+      query.mockResolvedValueOnce({ rows: [] }); // createGroup -> users insert
+      query.mockResolvedValueOnce({ rows: [mockGroup] }); // createGroup -> groups insert
+      query.mockResolvedValueOnce({ rows: [] }); // joinGroup -> users insert
+      query.mockResolvedValueOnce({ rows: [] }); // joinGroup -> group_members insert
 
       const res = await request(app)
         .post('/api/groups')

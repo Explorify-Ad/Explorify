@@ -14,8 +14,17 @@ const BACKEND_TO_APP_CAT = {
   landmark:     'Architecture',
 };
 
+// Map onboarding interest IDs → DB category enums (for cold start)
+const INTEREST_TO_DB_CATEGORY = {
+  architecture: ['architecture', 'landmark'],
+  food: ['shopping'],
+  nature: ['nature'],
+  history: ['historical'],
+  art: ['cultural'],
+  nightlife: ['shopping'],
+};
+
 // ─── Time-of-day category weights ────────────────────────────────────────────
-// Keys map to the DB category enum values.
 const TIME_WINDOWS = [
   { // Morning  05:00–10:59
     hours: [5, 6, 7, 8, 9, 10],
@@ -29,7 +38,7 @@ const TIME_WINDOWS = [
     hours: [16, 17, 18, 19, 20, 21],
     weights: { architecture: 0.30, landmark: 0.25, historical: 0.15, cultural: 0.15, shopping: 0.10, nature: 0.05, sports: 0.00 },
   },
-  { // Night  22:00–04:59 — route generation uncommon but handled gracefully
+  { // Night  22:00–04:59
     hours: [22, 23, 0, 1, 2, 3, 4],
     weights: { shopping: 0.30, cultural: 0.25, landmark: 0.20, architecture: 0.15, historical: 0.05, nature: 0.05, sports: 0.00 },
   },
@@ -43,75 +52,82 @@ function getTimeOfDayBonus(category, hour) {
 // ─── Weather scoring ──────────────────────────────────────────────────────────
 
 function getWeatherBonus(landmark, weather) {
-  if (!weather) return 0;
+  if (!weather) return { bonus: 0, reason: null };
   const { isRaining, isCold, isHot, isWindy, isClear } = weather;
   const indoor = landmark.is_indoor;
   let bonus = 0;
+  let reason = null;
 
-  if (isRaining)          bonus += indoor ? 0.30 : -0.30;
-  if (isCold && isWindy)  bonus += indoor ? 0.20 : -0.20;
-  if (isHot)              bonus += indoor ? 0.15 : (landmark.category === 'nature' ? 0.05 : -0.10);
-  if (isClear)            bonus += indoor ? -0.05 : 0.10;
+  if (isRaining) {
+    bonus += indoor ? 0.30 : -0.30;
+    if (indoor) reason = '🌧️ Indoor shelter';
+  }
+  if (isCold && isWindy) {
+    bonus += indoor ? 0.20 : -0.20;
+    if (indoor && !reason) reason = '❄️ Protected from wind';
+  }
+  if (isHot) {
+    bonus += indoor ? 0.15 : (landmark.category === 'nature' ? 0.05 : -0.10);
+    if (!reason && indoor) reason = '🥵 Cool retreat';
+  }
+  if (isClear) {
+    bonus += indoor ? -0.05 : 0.10;
+    if (!reason && !indoor) reason = '☀️ Great weather match';
+  }
 
-  return Math.max(-0.40, Math.min(0.40, bonus));
+  return { bonus: Math.max(-0.40, Math.min(0.40, bonus)), reason };
 }
 
 // ─── Visitor type scoring ─────────────────────────────────────────────────────
 
 function getVisitorTypeBonus(landmark, visitorType) {
-  if (!visitorType) return 0;
-  // Use landmark points as a proxy for popularity (higher points = more obscure / harder)
+  if (!visitorType) return { bonus: 0, reason: null };
   const pts = landmark.points || 10;
   if (visitorType === 'tourist') {
-    // Prefer well-known, easy-to-reach spots (low points = popular)
-    return pts <= 15 ? 0.20 : pts <= 25 ? 0.00 : -0.15;
+    if (pts <= 15) return { bonus: 0.20, reason: '✈️ Tourist favourite' };
+    if (pts <= 25) return { bonus: 0.00, reason: null };
+    return { bonus: -0.15, reason: null };
   }
   if (visitorType === 'local') {
-    // Prefer obscure / high-value spots
-    return pts >= 30 ? 0.25 : pts >= 20 ? 0.10 : -0.10;
+    if (pts >= 30) return { bonus: 0.25, reason: '💎 Local hidden gem' };
+    if (pts >= 20) return { bonus: 0.10, reason: '🏡 Off the beaten path' };
+    return { bonus: -0.10, reason: null };
   }
-  return 0;
+  return { bonus: 0, reason: null };
 }
 
 // ─── Adaptive difficulty ──────────────────────────────────────────────────────
-// Uses landmark.points as a proxy for tier until a formal tier column is added.
-// Soft penalty rather than hard exclusion so the route can still fill a budget.
 
 function getDifficultyBonus(landmark, totalPoints) {
   const pts = landmark.points || 10;
   const tp = totalPoints || 0;
 
   if (pts > 25) {
-    // "Hidden" tier — only comfortably accessible at 2000+ total XP
-    if (tp >= 2000) return 0.15;
-    if (tp >= 500)  return -0.20;
-    return -0.50;
+    if (tp >= 2000) return { bonus: 0.15, reason: '🏆 Challenge unlocked' };
+    if (tp >= 500)  return { bonus: -0.20, reason: null };
+    return { bonus: -0.50, reason: null };
   }
   if (pts > 15) {
-    // "Discovered" tier
-    if (tp >= 500) return 0.05;
-    return -0.15;
+    if (tp >= 500) return { bonus: 0.05, reason: '⭐ Discovered tier' };
+    return { bonus: -0.15, reason: null };
   }
-  // "Public" tier — always accessible
-  return tp === 0 ? 0.10 : 0; // small boost for brand-new users to get easy wins
+  if (tp === 0) return { bonus: 0.10, reason: '🌱 Beginner-friendly' };
+  return { bonus: 0, reason: null };
 }
 
 // ─── Interest decay / novelty bonus ──────────────────────────────────────────
-// Categories the user has rarely visited score higher — prevents the route
-// engine from always recommending the same category.
 
 function getNoveltyBonus(landmark, categoryCounts) {
-  if (!categoryCounts || Object.keys(categoryCounts).length === 0) return 0;
+  if (!categoryCounts || Object.keys(categoryCounts).length === 0) return { bonus: 0, reason: null };
   const appCat   = BACKEND_TO_APP_CAT[landmark.category];
   const count    = appCat ? (categoryCounts[appCat] ?? 0) : 0;
   const maxCount = Math.max(...Object.values(categoryCounts), 1);
-  // Scales from 0 (most-visited) to 0.25 (never visited)
-  return ((1 - count / maxCount) * 0.25);
+  const bonus = ((1 - count / maxCount) * 0.25);
+  const reason = bonus > 0.15 ? '🔄 New category for you' : null;
+  return { bonus, reason };
 }
 
 // ─── Dwell time per-user per-category ────────────────────────────────────────
-// Returns how many minutes this user typically spends at this type of place.
-// Falls back to the landmark's static avg_visit_duration_min.
 
 function getVisitTime(landmark, dwellTimes) {
   if (!dwellTimes) return landmark.avg_visit_duration_min || 30;
@@ -119,12 +135,25 @@ function getVisitTime(landmark, dwellTimes) {
   return (appCat && dwellTimes[appCat]) || landmark.avg_visit_duration_min || 30;
 }
 
-// ─── Composite score ──────────────────────────────────────────────────────────
+// ─── Cold Start Helpers ──────────────────────────────────────────────────────
 
-function calculateScore(landmark, current, context) {
+function getColdStartBonus(landmark, preferences) {
+  const interests = preferences.interests || [];
+  if (interests.length === 0) return { bonus: 0, reason: null };
+
+  const onboardingDbCats = interests.flatMap(i => INTEREST_TO_DB_CATEGORY[i] || []);
+  if (onboardingDbCats.includes(landmark.category)) {
+    return { bonus: 0.20, reason: '🎯 Matches your interests' };
+  }
+  return { bonus: 0, reason: null };
+}
+
+// ─── Composite score WITH reasons ─────────────────────────────────────────────
+
+function calculateScoreWithReasons(landmark, current, context) {
   const {
     currentHour, weather, visitorType, totalPoints,
-    preferredCategories, categoryCounts,
+    preferredCategories, categoryCounts, isColdStart, preferences,
   } = context;
 
   const dist = calculateDistance(
@@ -132,29 +161,57 @@ function calculateScore(landmark, current, context) {
     landmark.latitude, landmark.longitude,
   );
 
-  // Distance: exponential decay — 0.3 km → ~0.69, 1 km → ~0.29, 3 km → ~0.05
+  // Distance: exponential decay
   const distScore = Math.exp(-dist / 0.8);
 
   // Category preference
   const catScore = preferredCategories?.includes(landmark.category) ? 1.0 : 0.40;
 
-  // Adaptive bonuses
-  const timeBonus     = getTimeOfDayBonus(landmark.category, currentHour);
-  const weatherBonus  = getWeatherBonus(landmark, weather);
-  const visitorBonus  = getVisitorTypeBonus(landmark, visitorType);
-  const diffBonus     = getDifficultyBonus(landmark, totalPoints);
-  const noveltyBonus  = getNoveltyBonus(landmark, categoryCounts);
+  // Adaptive bonuses with scrutability reasons
+  const timeBonus    = getTimeOfDayBonus(landmark.category, currentHour);
+  const weatherRes   = getWeatherBonus(landmark, weather);
+  const visitorRes   = getVisitorTypeBonus(landmark, visitorType);
+  const diffRes      = getDifficultyBonus(landmark, totalPoints);
+  const noveltyRes   = getNoveltyBonus(landmark, categoryCounts);
+  const coldStartRes = isColdStart ? getColdStartBonus(landmark, preferences || {}) : { bonus: 0, reason: null };
+
+  // Collect all non-null reasons
+  const reasons = [
+    weatherRes.reason,
+    visitorRes.reason,
+    diffRes.reason,
+    noveltyRes.reason,
+    coldStartRes.reason,
+  ].filter(Boolean);
+
+  // Add time-slot reason
+  if (timeBonus > 0.15) {
+    const slots = { morning: '🌅 Morning discovery', midday: '☀️ Midday visit', evening: '🌇 Evening stroll', night: '🌃 Night exploration' };
+    const slot = currentHour >= 5 && currentHour < 11 ? 'morning'
+               : currentHour >= 11 && currentHour < 16 ? 'midday'
+               : currentHour >= 16 && currentHour < 22 ? 'evening'
+               : 'night';
+    reasons.push(slots[slot]);
+  }
+
+  // Add category match reason
+  if (catScore === 1.0) {
+    reasons.push('🎯 Preferred category');
+  }
 
   // Weighted composite — weights sum to 1.0
-  return (
-    distScore    * 0.35 +
-    catScore     * 0.22 +
-    timeBonus    * 0.14 +
-    noveltyBonus * 0.12 +
-    weatherBonus * 0.08 +
-    visitorBonus * 0.05 +
-    diffBonus    * 0.04
+  const compositeScore = (
+    distScore             * 0.30 +
+    catScore              * 0.18 +
+    timeBonus             * 0.14 +
+    noveltyRes.bonus      * 0.12 +
+    weatherRes.bonus      * 0.08 +
+    visitorRes.bonus      * 0.05 +
+    diffRes.bonus         * 0.04 +
+    coldStartRes.bonus    * 0.09  // Cold start gets meaningful weight for new users
   );
+
+  return { score: compositeScore, reasons: reasons.slice(0, 3) };
 }
 
 // ─── Route service ────────────────────────────────────────────────────────────
@@ -168,7 +225,6 @@ class RouteService {
     const abandonmentStreak = preferences.abandonment_streak || 0;
 
     // Priority 5: Route Abandonment Adaptation
-    // Automatically suggest shorter routes if user has abandoned multiple times
     if (abandonmentStreak >= 3) {
       timeBudget = Math.min(timeBudget, preferences.suggested_duration_limit || 45);
     }
@@ -181,7 +237,7 @@ class RouteService {
       timeBudget = Math.min(timeBudget, 120);
     }
 
-    // Battery-aware constraints: strictly limit stops and duration if battery is low
+    // Battery-aware constraints
     if (batteryLevel < 20) {
       timeBudget = Math.min(timeBudget, 60);
     }
@@ -189,18 +245,17 @@ class RouteService {
       timeBudget = Math.min(timeBudget, 30);
     }
 
-    // Fetch available landmarks
     // Fetch user context from DB if logged in
     let totalPoints    = preferences.total_points || 0;
     let userPrefs      = {};
-    let dwellTimes     = preferences.dwell_times    || null; // { History: 35, Art: 20 }
-    let categoryCounts = preferences.category_counts || null; // { History: 8, Nature: 1 }
+    let dwellTimes     = preferences.dwell_times    || null;
+    let categoryCounts = preferences.category_counts || null;
+    let collectionCount = 0;
 
     if (userId) {
       try {
-        const [userResult, dwellResult] = await Promise.all([
+        const [userResult, dwellResult, countResult] = await Promise.all([
           query('SELECT total_points, preferences FROM users WHERE id = $1', [userId]),
-          // Aggregate per-user per-category avg dwell time from the backend's collections table
           query(
             `SELECT l.category, AVG(c.dwell_time_min)::int AS avg_dwell
              FROM collections c
@@ -211,6 +266,7 @@ class RouteService {
              GROUP BY l.category`,
             [userId],
           ),
+          query('SELECT COUNT(*) as cnt FROM collections WHERE user_id = $1', [userId]),
         ]);
 
         if (userResult.rows[0]) {
@@ -218,7 +274,6 @@ class RouteService {
           userPrefs   = userResult.rows[0].preferences || {};
         }
 
-        // Build dwell-time map keyed by normalised app category
         if (dwellResult.rows.length > 0 && !dwellTimes) {
           dwellTimes = {};
           dwellResult.rows.forEach(({ category, avg_dwell }) => {
@@ -226,24 +281,47 @@ class RouteService {
             if (appCat) dwellTimes[appCat] = avg_dwell;
           });
         }
-      } catch (_) { /* non-fatal — fall back to static values */ }
+
+        collectionCount = parseInt(countResult.rows[0]?.cnt || 0);
+      } catch (_) { /* non-fatal */ }
     }
 
-    // Merge preferences (request-level overrides DB preferences)
+    const isColdStart = collectionCount === 0;
+
+    // Merge preferences
     const merged = { ...userPrefs, ...preferences };
 
     // Build scoring context
+    const currentHour = preferences.current_hour !== undefined
+      ? parseInt(preferences.current_hour)
+      : new Date().getHours();
+
+    let weather = null;
+    try {
+      weather = await weatherService.getCurrentWeather(startLat, startLng);
+    } catch (err) {}
+
     const context = {
-      currentHour:     new Date().getHours(),
-      weather:         merged.weather       ?? null,
-      visitorType:     merged.visitor_type  ?? null,
+      currentHour,
+      weather:             merged.weather       ?? weather ?? null,
+      visitorType:         merged.visitor_type  ?? null,
       totalPoints,
       preferredCategories: merged.categories ?? [],
-      categoryCounts,  // { History: 8, Nature: 1, ... } — novelty decay
-      dwellTimes,      // { History: 35, Art: 20, ... } — learned visit durations
+      categoryCounts,
+      dwellTimes,
+      isColdStart,
+      preferences: merged,
+      batteryLevel,
+      groupContext: merged.group_context,
+      walking_speed_kmh: merged.walking_speed_kmh,
     };
 
-    // Fetch landmarks — indoor filter applied early if weather demands it
+    // Build active adaptations for scrutability
+    const activeAdaptations = recommendationService.buildActiveAdaptations(
+      merged, context.weather, currentHour, isColdStart, totalPoints
+    );
+
+    // Fetch landmarks
     let sql = 'SELECT * FROM landmarks WHERE 1=1';
     const params = [];
     let idx = 1;
@@ -256,7 +334,6 @@ class RouteService {
       sql += ` AND accessibility_level >= $${idx++}`;
       params.push(merged.accessibility_min);
     }
-    // Force indoor if heavy rain
     if (merged.indoor_only || (context.weather?.isRaining && context.weather?.windSpeed > 8)) {
       sql += ' AND is_indoor = true';
     }
@@ -264,59 +341,49 @@ class RouteService {
     const result = await query(sql, params);
     let landmarks = result.rows;
 
-    // Get context for scoring
-    let weather = null;
-    try {
-      weather = await weatherService.getCurrentWeather(startLat, startLng);
-    } catch (err) {}
-
+    // Get visited landmarks for this user
     const visited = userId ? await query('SELECT landmark_id FROM collections WHERE user_id = $1', [userId]) : { rows: [] };
     const visitedIds = new Set(visited.rows.map(r => r.landmark_id));
 
-    const currentHour = preferences.current_hour !== undefined
-      ? parseInt(preferences.current_hour)
-      : new Date().getHours();
-
-    // Pre-calculate scores for all candidate landmarks
-    landmarks = landmarks.map(l => {
-      const { score, reasons } = recommendationService.calculateScore(l, preferences, weather, visitedIds, currentHour);
-      return {
-        ...l,
-        _score: score,
-        reasons: reasons
-      };
-    });
-
-    // Build route using score-weighted nearest-neighbor algorithm
+    // Build route using unified composite scoring
     const route = this.buildRoute(
       { latitude: startLat, longitude: startLng },
       landmarks,
       timeBudget,
       context,
-      timeBudget,
-      preferences,
-      batteryLevel
+      visitedIds,
     );
+
+    // Build the response
+    const routeResponse = {
+      landmarks: route,
+      active_adaptations: activeAdaptations,
+      cold_start: isColdStart,
+      estimated_duration_min: timeBudget,
+    };
 
     if (userId) {
       const totalDistance = this.calculateTotalDistance(route, startLat, startLng);
-      const savedRoute = await query(
-        `INSERT INTO routes (user_id, landmarks, total_distance_km, estimated_duration_min)
-         VALUES ($1, $2, $3, $4) RETURNING *`,
-        [userId, JSON.stringify(route.map((l) => l.id)), totalDistance, timeBudget],
-      );
-      return { ...savedRoute.rows[0], landmarks: route };
+      try {
+        const savedRoute = await query(
+          `INSERT INTO routes (user_id, landmarks, total_distance_km, estimated_duration_min)
+           VALUES ($1, $2, $3, $4) RETURNING *`,
+          [userId, JSON.stringify(route.map((l) => l.id)), totalDistance, timeBudget],
+        );
+        return { ...savedRoute.rows[0], ...routeResponse };
+      } catch (_) {
+        return routeResponse;
+      }
     }
 
-    return { landmarks: route };
+    return routeResponse;
   }
 
   /**
    * Build route using score-ranked greedy selection.
-   * Replaces pure nearest-neighbor with a composite score so time-of-day,
-   * weather, visitor type, and difficulty all influence landmark ordering.
+   * Uses a single unified scoring pipeline with full scrutability.
    */
-  buildRoute(start, landmarks, timeBudget, context = {}) {
+  buildRoute(start, landmarks, timeBudget, context = {}, visitedIds = new Set()) {
     const route = [];
     const remaining = [...landmarks];
     let current = start;
@@ -328,16 +395,17 @@ class RouteService {
     while (remaining.length > 0 && totalTime < timeBudget) {
       let bestIdx = -1;
       let bestScore = -Infinity;
+      let bestReasons = [];
 
       for (let i = 0; i < remaining.length; i++) {
         const lm = remaining[i];
-        
+
         const dist = calculateDistance(
           current.latitude, current.longitude,
           lm.latitude, lm.longitude
         );
-        
-        // Critical Battery Constraint (from context/batteryLevel)
+
+        // Critical Battery Constraint
         if (context.batteryLevel < 10 && dist > 0.5) continue;
 
         // Group mobility constraints
@@ -348,15 +416,27 @@ class RouteService {
 
         if (totalTime + walkTime + visitTime > timeBudget) continue;
 
-        // Composite scoring (Priority 10)
-        const score = calculateScore(lm, current, context);
-        
-        // Final priority = Score / (Distance + 0.1) to favor closer high-scoring spots
-        const priority = score / (dist + 0.1);
+        // Skip already-visited landmarks (repeat-visit avoidance)
+        const alreadyVisited = visitedIds.has(lm.id);
+        const visitedPenalty = alreadyVisited ? -0.25 : 0;
+
+        // Unified composite scoring with reasons
+        const { score, reasons } = calculateScoreWithReasons(lm, current, context);
+
+        // Add visited penalty and reason
+        let adjustedScore = score + visitedPenalty;
+        const adjustedReasons = [...reasons];
+        if (alreadyVisited) {
+          adjustedReasons.unshift('🔁 Previously Visited');
+        }
+
+        // Priority = Score / (Distance + 0.1)
+        const priority = adjustedScore / (dist + 0.1);
 
         if (priority > bestScore) {
           bestScore = priority;
           bestIdx = i;
+          bestReasons = adjustedReasons;
         }
       }
 
@@ -373,6 +453,7 @@ class RouteService {
         order: route.length + 1,
         estimated_arrival_min: Math.round(totalTime + walkTime),
         visit_duration_min: visitTime,
+        reasons: bestReasons.slice(0, 3),
       });
 
       current = { latitude: lm.latitude, longitude: lm.longitude };
