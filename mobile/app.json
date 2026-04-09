@@ -17,6 +17,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.explorify.app",
+      "jsEngine": "jsc",
       "config": {
         "googleMapsApiKey": "YOUR_GOOGLE_MAPS_API_KEY"
       }
@@ -27,6 +28,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.explorify.app",
+      "jsEngine": "jsc",
       "config": {
         "googleMaps": {
           "apiKey": "YOUR_GOOGLE_MAPS_API_KEY"
