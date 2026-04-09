@@ -254,7 +254,7 @@ class RouteService {
 
     if (userId) {
       try {
-        const [userResult, dwellResult, countResult] = await Promise.all([
+        const [userResult, dwellResult, countResult, catCountResult] = await Promise.all([
           query('SELECT total_points, preferences FROM users WHERE id = $1', [userId]),
           query(
             `SELECT l.category, AVG(c.dwell_time_min)::int AS avg_dwell
@@ -267,7 +267,23 @@ class RouteService {
             [userId],
           ),
           query('SELECT COUNT(*) as cnt FROM collections WHERE user_id = $1', [userId]),
+          query(
+            `SELECT l.category, COUNT(*)::int as cnt
+             FROM collections c
+             JOIN landmarks l ON l.id = c.landmark_id
+             WHERE c.user_id = $1
+             GROUP BY l.category`,
+            [userId]
+          )
         ]);
+
+        if (catCountResult.rows.length > 0) {
+          categoryCounts = {};
+          catCountResult.rows.forEach(({ category, cnt }) => {
+            const appCat = BACKEND_TO_APP_CAT[category] || category;
+            categoryCounts[appCat] = cnt;
+          });
+        }
 
         if (userResult.rows[0]) {
           totalPoints = userResult.rows[0].total_points || totalPoints;

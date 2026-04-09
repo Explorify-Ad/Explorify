@@ -67,16 +67,19 @@ export async function fetchNearbyLandmarks(userLat, userLon, radiusMeters = 1000
 
 // ─── Collections ──────────────────────────────────────────────────────────────
 
-export async function saveCheckIn(userId, landmark, xpEarned) {
+export async function saveCheckIn(userId, landmark, xpEarned, feedback = {}) {
   const { error } = await supabase.from('collections').upsert({
     user_id: userId,
     landmark_id: isUUID(landmark.id) ? landmark.id : null,
     landmark_name: landmark.name,
-    landmark_lat: landmark.lat,
-    landmark_lon: landmark.lon,
+    landmark_lat: landmark.lat ?? landmark.latitude,
+    landmark_lon: landmark.lon ?? landmark.longitude,
     landmark_category: landmark.category,
     landmark_tier: landmark.tier,
     xp_earned: xpEarned,
+    dwell_time_min: feedback.dwellTime || 0,
+    rating: feedback.rating || null,
+    notes: feedback.notes || '',
     visited_at: new Date().toISOString(),
   }, { onConflict: 'user_id,landmark_id', ignoreDuplicates: true });
   if (error) console.warn('saveCheckIn error:', error.message);

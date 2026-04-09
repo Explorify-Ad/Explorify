@@ -17,7 +17,7 @@ import { useTheme } from '../context/ThemeContext';
 import { TIER_COLORS, CATEGORY_COLORS } from '../utils/theme';
 import { CATEGORY_ICONS } from '../components/explorify/PinDetailModal';
 import { getCurrentLocation } from '../services/location';
-import { fetchNearbyLandmarks } from '../services/supabase';
+import useStore from '../store/useStore';
 
 const { height: H } = Dimensions.get('window');
 const RADII = [200, 500, 1000];
@@ -39,6 +39,7 @@ export default function NearbyScreen() {
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState(null);
   const [userLocation, setUserLocation] = useState(route.params?.userLocation || null);
+  const [activeAdaptations, setActiveAdaptations] = useState([]);
 
   const sheetY     = useRef(new Animated.Value(H * 0.7)).current;
   const pulseScale = useRef(new Animated.Value(1)).current;
@@ -61,8 +62,21 @@ export default function NearbyScreen() {
       setError(null);
       let loc = userLocation;
       if (!loc) { loc = await getCurrentLocation(); setUserLocation(loc); }
-      const results = await fetchNearbyLandmarks(loc.latitude, loc.longitude, r);
-      setLandmarks(results);
+      
+      const fetchRecs = useStore.getState().fetchRecommendations;
+      const results = await fetchRecs(loc.latitude, loc.longitude);
+      
+      if (results && results.length > 0 && results[0]._activeAdaptations) {
+        setActiveAdaptations(results[0]._activeAdaptations);
+      }
+      
+      // Still filter by radius locally for the "Nearby" feeling
+      const filtered = (results || []).filter(lm => {
+        const dist = lm.distance || 0;
+        return dist <= r;
+      });
+      
+      setLandmarks(filtered);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -129,6 +143,20 @@ export default function NearbyScreen() {
             </View>
           )}
         </View>
+
+        {/* Adaptive Status (New) */}
+        {activeAdaptations.length > 0 && (
+          <View style={styles.adaptationSummary}>
+            <Sparkles size={14} color="#7C3AED" strokeWidth={2.5} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.adaptationScroll}>
+              {activeAdaptations.map((a, i) => (
+                <View key={i} style={styles.adaptationPill}>
+                  <Text style={styles.adaptationText}>{a.label}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {/* Radius selector */}
         <View style={styles.radiusRow}>
@@ -218,6 +246,18 @@ export default function NearbyScreen() {
                     {lm.name}
                   </Text>
                   <Text style={styles.cardCat}>{lm.category}</Text>
+                  
+                  {/* Scrutability: Adaptive reasons */}
+                  {lm.reasons && lm.reasons.length > 0 && (
+                    <View style={styles.reasonsRow}>
+                      {lm.reasons.map((reason, i) => (
+                        <View key={i} style={styles.reasonChip}>
+                          <Text style={styles.reasonText}>{reason}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
                   {/* Distance bar */}
                   <View style={styles.distTrack}>
                     <View style={[styles.distFill, { width: `${distPct * 100}%`, backgroundColor: catColor }]} />
@@ -305,12 +345,40 @@ const styles = StyleSheet.create({
   radiusChip: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 5, paddingVertical: 9, borderRadius: 12,
-    borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.1)',
+    borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.06)',
     backgroundColor: 'white', overflow: 'hidden',
   },
   radiusChipActive: { borderColor: 'transparent' },
   radiusChipText: { fontSize: 13, fontWeight: '600', color: '#6B7280' },
   radiusChipTextActive: { color: 'white' },
+
+  adaptationSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: '#F5F3FF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#EDE9FE',
+  },
+  adaptationScroll: {
+    gap: 6,
+    paddingRight: 20,
+  },
+  adaptationPill: {
+    backgroundColor: 'white',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 100,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  adaptationText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#7C3AED',
+  },
 
   list: { flex: 1 },
   listContent: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 20, gap: 10 },
@@ -349,9 +417,29 @@ const styles = StyleSheet.create({
   cardCat: { fontSize: 11, color: '#9CA3AF', fontWeight: '500' },
   distTrack: {
     height: 3, backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: 2,
-    overflow: 'hidden', marginTop: 4,
+    overflow: 'hidden', marginTop: 8,
   },
   distFill: { height: '100%', borderRadius: 2 },
+
+  reasonsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4,
+  },
+  reasonChip: {
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#EDE9FE',
+  },
+  reasonText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#7C3AED',
+  },
 
   cardRight: { alignItems: 'flex-end', gap: 5, flexShrink: 0 },
   tierBadge: {

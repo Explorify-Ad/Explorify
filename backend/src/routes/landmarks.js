@@ -5,7 +5,7 @@ const { getRecommendations } = require('../controllers/recommendationController'
 const authenticate = require('../middleware/auth');
 
 // GET /api/landmarks/recommendations - Get personalized recommendations
-router.get('/recommendations', getRecommendations);
+router.get('/recommendations', authenticate, getRecommendations);
 
 // GET /api/landmarks/context - Get current weather and time context
 router.get('/context', authenticate, async (req, res, next) => {

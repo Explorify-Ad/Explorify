@@ -54,15 +54,24 @@ class RecommendationService {
     let collectionCount = 0;
 
     if (userId) {
-      const userResult = await query('SELECT total_points FROM users WHERE id = $1', [userId]);
-      userPoints = userResult.rows[0]?.total_points || 0;
+      const dbResult = await query('SELECT total_points FROM users WHERE id = $1', [userId]);
+      userPoints = dbResult.rows[0]?.total_points || 0;
 
       const visited = await query(
-        'SELECT landmark_id FROM collections WHERE user_id = $1',
+        'SELECT landmark_id, landmark_category FROM collections WHERE user_id = $1',
         [userId]
       );
       visitedIds = new Set(visited.rows.map((r) => r.landmark_id));
       collectionCount = visited.rows.length;
+
+      // Extract category counts for novelty bonus
+      const counts = {};
+      visited.rows.forEach(r => {
+        if (r.landmark_category) {
+          counts[r.landmark_category] = (counts[r.landmark_category] || 0) + 1;
+        }
+      });
+      preferences.category_counts = counts;
     }
 
     // Detect cold start
