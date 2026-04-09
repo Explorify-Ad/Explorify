@@ -24,10 +24,14 @@ import {
   Wind,
   Zap,
   Home,
+  Settings,
+  Eye,
+  Sparkles,
 } from 'lucide-react-native';
 import useStore from '../store/useStore';
 import useWeather from '../hooks/useWeather';
 import useLocation from '../hooks/useLocation';
+import useBattery from '../hooks/useBattery';
 import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
@@ -36,7 +40,7 @@ const { width } = Dimensions.get('window');
 
 function UserHeader({ name, level, currentXP, totalXP }) {
   const { theme } = useTheme();
-  const progress = (currentXP / 500) * 100; // Assuming 500 XP per level
+  const progress = (currentXP / 500) * 100;
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -108,6 +112,105 @@ function WeatherWidget({ weather }) {
   );
 }
 
+// ─── Adaptive Profile Card (Scrutability) ───────────────────────────────────
+
+function AdaptiveProfileCard({ preferences, interests, collection, weather, navigation }) {
+  const { theme } = useTheme();
+  const { tier: batteryTier, batteryLevel } = useBattery();
+  const isColdStart = collection.length === 0;
+  const hour = new Date().getHours();
+
+  let timeSlot = 'Day';
+  if (hour >= 6 && hour < 11) timeSlot = 'Morning';
+  else if (hour >= 11 && hour < 17) timeSlot = 'Midday';
+  else if (hour >= 17 && hour < 22) timeSlot = 'Evening';
+  else timeSlot = 'Night';
+
+  const visitorType = preferences.visitor_type || 'tourist';
+  const chips = [];
+
+  // Time chip
+  const timeEmoji = timeSlot === 'Morning' ? '🌅' : timeSlot === 'Midday' ? '☀️' : timeSlot === 'Evening' ? '🌇' : '🌃';
+  chips.push({ label: `${timeEmoji} ${timeSlot}`, color: '#F59E0B' });
+
+  // Visitor type chip
+  chips.push({
+    label: visitorType === 'tourist' ? '✈️ Tourist' : '🏡 Local',
+    color: visitorType === 'tourist' ? '#0D9488' : '#7C3AED',
+  });
+
+  // Weather chip
+  if (weather) {
+    if (weather.isRaining) chips.push({ label: '🌧️ Indoor Mode', color: '#1E40AF' });
+    else if (weather.isClear) chips.push({ label: '☀️ Outdoor', color: '#92400E' });
+  }
+
+  // Cold start chip
+  if (isColdStart) {
+    chips.push({ label: '🆕 New Explorer', color: '#7C3AED' });
+  }
+
+  // Battery chip
+  if (batteryTier === 'low' || batteryTier === 'critical') {
+    chips.push({ label: `🔋 ${Math.round((batteryLevel || 0) * 100)}%`, color: '#EF4444' });
+  }
+
+  // Interest chips
+  if (interests?.length > 0) {
+    const interestLabels = {
+      architecture: '🏛️', food: '🍜', nature: '🌿',
+      history: '⚔️', art: '🎨', nightlife: '🎵'
+    };
+    const displayInterests = interests.slice(0, 3).map(i => interestLabels[i] || i);
+    chips.push({ label: `🎯 ${displayInterests.join(' ')}`, color: '#F5A623' });
+  }
+
+  return (
+    <TouchableOpacity
+      style={styles.adaptiveCard}
+      onPress={() => navigation.navigate('Profile')}
+      activeOpacity={0.8}
+    >
+      <LinearGradient
+        colors={['#F5F3FF', '#EDE9FE']}
+        style={styles.adaptiveInner}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.adaptiveHeader}>
+          <View style={styles.adaptiveTitleRow}>
+            <Eye size={16} color="#7C3AED" strokeWidth={2.5} />
+            <Text style={styles.adaptiveTitle}>Your Adaptive Profile</Text>
+          </View>
+          <Settings size={14} color="#9CA3AF" strokeWidth={2} />
+        </View>
+
+        {isColdStart && (
+          <View style={styles.coldStartHint}>
+            <Sparkles size={12} color="#7C3AED" strokeWidth={2} />
+            <Text style={styles.coldStartHintText}>
+              Routes are tuned for first-time {visitorType === 'tourist' ? 'visitors' : 'locals'} based on your onboarding preferences. Check in to personalise further!
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.adaptiveChips}>
+          {chips.map((chip, i) => (
+            <View key={i} style={[styles.adaptiveChip, { borderColor: chip.color + '40' }]}>
+              <Text style={[styles.adaptiveChipText, { color: chip.color }]}>{chip.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.adaptiveSub}>
+          {isColdStart
+            ? 'These factors shape your first routes. Explore to refine them!'
+            : `${collection.length} check-in${collection.length !== 1 ? 's' : ''} shaping your experience.`}
+        </Text>
+      </LinearGradient>
+    </TouchableOpacity>
+  );
+}
+
 // ─── Quick Stats ─────────────────────────────────────────────────────────────
 
 function QuickStats({ stats }) {
@@ -157,19 +260,31 @@ export default function HomeScreen({ navigation }) {
   const currentXP = useStore((s) => s.getCurrentXP());
   const totalXP = useStore((s) => s.getTotalXP());
   const stats = useStore((s) => s.getStats());
-  
+  const preferences = useStore((s) => s.preferences);
+  const interests = useStore((s) => s.interests);
+  const collection = useStore((s) => s.collection);
+
   const { location } = useLocation();
   const { weather } = useWeather(location?.latitude, location?.longitude);
 
   return (
-    <ScrollView 
-      style={styles.container} 
+    <ScrollView
+      style={styles.container}
       contentContainerStyle={{ paddingTop: insets.top + 20, paddingBottom: 100 }}
       showsVerticalScrollIndicator={false}
     >
       <UserHeader name={userName} level={level} currentXP={currentXP} totalXP={totalXP} />
-      
+
       <WeatherWidget weather={weather} />
+
+      {/* Scrutability: Adaptive Profile Summary */}
+      <AdaptiveProfileCard
+        preferences={preferences}
+        interests={interests}
+        collection={collection}
+        weather={weather}
+        navigation={navigation}
+      />
 
       <QuickStats stats={stats} />
 
@@ -178,39 +293,39 @@ export default function HomeScreen({ navigation }) {
       </View>
 
       <View style={styles.actionGrid}>
-        <ActionCard 
-          title="Map View" 
-          subtitle="Explore 3D Dublin" 
-          icon={Map} 
-          color="#2E86AB" 
-          onPress={() => navigation.navigate('Map')} 
+        <ActionCard
+          title="Map View"
+          subtitle="Explore 3D Dublin"
+          icon={Map}
+          color="#2E86AB"
+          onPress={() => navigation.navigate('Map')}
         />
-        <ActionCard 
-          title="Build Route" 
-          subtitle="Adaptive paths" 
-          icon={Route} 
-          color="#F97316" 
-          onPress={() => navigation.navigate('Route')} 
+        <ActionCard
+          title="Build Route"
+          subtitle="Adaptive paths"
+          icon={Route}
+          color="#F97316"
+          onPress={() => navigation.navigate('Route')}
         />
-        <ActionCard 
-          title="Collections" 
-          subtitle="Found treasures" 
-          icon={Briefcase} 
-          color="#10B981" 
-          onPress={() => navigation.navigate('Collection')} 
+        <ActionCard
+          title="Collections"
+          subtitle="Found treasures"
+          icon={Briefcase}
+          color="#10B981"
+          onPress={() => navigation.navigate('Collection')}
         />
-        <ActionCard 
-          title="Active Quests" 
-          subtitle="New challenges" 
-          icon={Target} 
-          color="#7C3AED" 
-          onPress={() => navigation.navigate('Quests')} 
+        <ActionCard
+          title="Active Quests"
+          subtitle="New challenges"
+          icon={Target}
+          color="#7C3AED"
+          onPress={() => navigation.navigate('Quests')}
         />
       </View>
 
       <TouchableOpacity
         style={styles.communityCard}
-        onPress={() => navigation.navigate('Group')}
+        onPress={() => navigation.navigate('Community')}
       >
         <LinearGradient
           colors={['#7C3AED', '#4F46E5']}
@@ -226,7 +341,7 @@ export default function HomeScreen({ navigation }) {
           </View>
           <Text style={styles.communitySub}>Join fellow explorers in real-time group expeditions across Dublin.</Text>
           <View style={styles.joinBtn}>
-            <Text style={styles.joinBtnText}>Browse Groups</Text>
+            <Text style={styles.joinBtnText}>Browse Communities</Text>
           </View>
         </LinearGradient>
       </TouchableOpacity>
@@ -301,7 +416,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 16,
     borderRadius: 20,
-    marginBottom: 24,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.03)',
   },
@@ -323,6 +438,75 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 2,
   },
+
+  // Adaptive Profile Card (Scrutability)
+  adaptiveCard: {
+    marginBottom: 20,
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  adaptiveInner: {
+    padding: 18,
+  },
+  adaptiveHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  adaptiveTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  adaptiveTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#5B21B6',
+  },
+  coldStartHint: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: 'rgba(124,58,237,0.08)',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 10,
+  },
+  coldStartHintText: {
+    fontSize: 12,
+    color: '#5B21B6',
+    flex: 1,
+    lineHeight: 17,
+  },
+  adaptiveChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10,
+  },
+  adaptiveChip: {
+    backgroundColor: 'white',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 100,
+    borderWidth: 1.5,
+  },
+  adaptiveChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  adaptiveSub: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    lineHeight: 15,
+  },
+
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',

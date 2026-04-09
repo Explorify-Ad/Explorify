@@ -46,14 +46,14 @@ function RadarChart({ data, primaryColor }) {
 }
 
 // Achievements derived from actual progress
-function buildAchievements(collection, streak) {
+function buildAchievements(collection, streak, totalQuests) {
   return [
     { id: 1, name: 'First Steps',    icon: '🎯', unlocked: collection.length >= 1 },
     { id: 2, name: 'Streak 3',       icon: '🔥', unlocked: streak >= 3 },
     { id: 3, name: 'Explorer',       icon: '🌆', unlocked: collection.length >= 5 },
     { id: 4, name: 'Hidden Hunter',  icon: '🔍', unlocked: collection.some((c) => c.tier === 'hidden') },
-    { id: 5, name: 'Quest Finisher', icon: '🏆', unlocked: collection.length >= 10 },
-    { id: 6, name: 'Veteran',        icon: '🎖️', unlocked: collection.length >= 25 },
+    { id: 5, name: 'Quest Finisher', icon: '🏆', unlocked: totalQuests >= 1 },
+    { id: 6, name: 'Veteran',        icon: '🎖️', unlocked: totalQuests >= 10 },
   ];
 }
 
@@ -80,7 +80,7 @@ export default function ProfileScreen() {
   const stats        = getStats();
   const dna          = getDNAStats();
   const explorerType = getExplorerType();
-  const achievements = buildAchievements(collection, streak);
+  const achievements = buildAchievements(collection, streak, stats.quests);
 
   const [visitorType, setVisitorType] = useState('tourist');
 
@@ -148,9 +148,31 @@ export default function ProfileScreen() {
           ))}
         </View>
 
-        {/* Behavioral Insights */}
-        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Behavioral Insights</Text>
+        {/* Behavioral Insights — full scrutability */}
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>How Explorify Adapts to You</Text>
         <View style={[styles.insightsCard, { backgroundColor: 'white' }]}>
+          {/* Cold Start Detection */}
+          {collection.length === 0 && (
+            <>
+              <View style={styles.insightItem}>
+                <View style={[styles.insightIcon, { backgroundColor: '#F5F3FF' }]}>
+                  <Text style={{ fontSize: 20 }}>🆕</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.insightLabel, { color: theme.textSecondary }]}>Cold Start Active</Text>
+                  <Text style={[styles.insightValue, { color: theme.textPrimary }]}>
+                    Using onboarding data
+                  </Text>
+                </View>
+                <View style={[styles.insightBadge, { backgroundColor: '#F5F3FF' }]}>
+                  <Text style={[styles.badgeText, { color: '#7C3AED' }]}>New User</Text>
+                </View>
+              </View>
+              <View style={[styles.insightDivider, { backgroundColor: theme.border }]} />
+            </>
+          )}
+
+          {/* Walking Pace */}
           <View style={styles.insightItem}>
             <View style={[styles.insightIcon, { backgroundColor: '#EFF6FF' }]}>
               <Text style={{ fontSize: 20 }}>🚶</Text>
@@ -163,36 +185,96 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.insightBadge}>
               <Text style={styles.badgeText}>
-                {(preferences.walking_speed_kmh || 4.5) > 4.5 ? 'Active' : 'Steady'}
+                {(preferences.walking_speed_kmh || 4.5) > 5.0 ? 'Fast Walker' : (preferences.walking_speed_kmh || 4.5) > 4.5 ? 'Active' : 'Steady'}
               </Text>
             </View>
           </View>
 
           <View style={[styles.insightDivider, { backgroundColor: theme.border }]} />
 
+          {/* Visit Style / Dwell Time */}
           <View style={styles.insightItem}>
             <View style={[styles.insightIcon, { backgroundColor: '#FDF2F8' }]}>
               <Text style={{ fontSize: 20 }}>⏳</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.insightLabel, { color: theme.textSecondary }]}>Visit Style</Text>
+              <Text style={[styles.insightLabel, { color: theme.textSecondary }]}>Visit Duration Style</Text>
               <Text style={[styles.insightValue, { color: theme.textPrimary }]}>
                 {Object.keys(preferences.category_dwell_multipliers || {}).length > 0 
-                  ? 'Personalized' 
-                  : 'Standard'}
+                  ? 'Personalised from your visits' 
+                  : collection.length === 0 ? 'Default (no data yet)' : 'Standard'}
               </Text>
             </View>
             <View style={styles.insightBadge}>
               <Text style={styles.badgeText}>
-                {preferences.abandonment_streak > 0 ? 'Short Preferred' : 'Regular'}
+                {Object.keys(preferences.category_dwell_multipliers || {}).length > 0 ? 'Learned' : 'Default'}
               </Text>
             </View>
+          </View>
+
+          <View style={[styles.insightDivider, { backgroundColor: theme.border }]} />
+
+          {/* Difficulty Tier */}
+          <View style={styles.insightItem}>
+            <View style={[styles.insightIcon, { backgroundColor: '#FEF3C7' }]}>
+              <Text style={{ fontSize: 20 }}>📊</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.insightLabel, { color: theme.textSecondary }]}>Difficulty Tier</Text>
+              <Text style={[styles.insightValue, { color: theme.textPrimary }]}>
+                {collection.reduce((s, c) => s + (c.xpEarned || 150), 0) >= 2000
+                  ? 'All tiers unlocked'
+                  : collection.reduce((s, c) => s + (c.xpEarned || 150), 0) >= 500
+                  ? 'Discovered tier unlocked'
+                  : 'Public tier only'}
+              </Text>
+            </View>
+            <View style={[styles.insightBadge, { 
+              backgroundColor: collection.reduce((s, c) => s + (c.xpEarned || 150), 0) >= 2000 ? '#ECFDF5' : '#FEF3C7' 
+            }]}>
+              <Text style={[styles.badgeText, { 
+                color: collection.reduce((s, c) => s + (c.xpEarned || 150), 0) >= 2000 ? '#059669' : '#92400E' 
+              }]}>
+                {collection.reduce((s, c) => s + (c.xpEarned || 150), 0)} XP
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.insightDivider, { backgroundColor: theme.border }]} />
+
+          {/* Route Completion */}
+          <View style={styles.insightItem}>
+            <View style={[styles.insightIcon, { backgroundColor: '#FEE2E2' }]}>
+              <Text style={{ fontSize: 20 }}>🛤️</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.insightLabel, { color: theme.textSecondary }]}>Route Preference</Text>
+              <Text style={[styles.insightValue, { color: theme.textPrimary }]}>
+                {preferences.abandonment_streak >= 3
+                  ? 'Prefers shorter routes'
+                  : preferences.abandonment_streak > 0
+                  ? `${preferences.abandonment_streak} route(s) abandoned`
+                  : 'Standard length'}
+              </Text>
+            </View>
+            <View style={styles.insightBadge}>
+              <Text style={styles.badgeText}>
+                {preferences.abandonment_streak >= 3 ? 'Adapted' : 'Normal'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Data source info */}
+          <View style={styles.insightFooter}>
+            <Text style={styles.insightFooterText}>
+              Based on {collection.length} check-in{collection.length !== 1 ? 's' : ''} · These insights shape your routes and recommendations automatically.
+            </Text>
           </View>
           
           <TouchableOpacity 
             style={styles.resetBtn} 
             onPress={() => {
-              Alert.alert('Reset Learning', 'This will clear your learned walking pace and visit durations. Continue?', [
+              Alert.alert('Reset Learning', 'This will clear your learned walking pace, visit durations, and route preferences. Routes will use default values. Continue?', [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Reset', style: 'destructive', onPress: () => setPreferences({ 
                     walking_speed_kmh: 4.5, 
@@ -203,7 +285,7 @@ export default function ProfileScreen() {
               ]);
             }}
           >
-            <Text style={styles.resetBtnText}>Reset Behavioral Context</Text>
+            <Text style={styles.resetBtnText}>Reset Behavioral Learning</Text>
           </TouchableOpacity>
         </View>
 
@@ -351,6 +433,16 @@ const styles = StyleSheet.create({
   insightDivider: {
     height: 1,
     marginVertical: 16,
+  },
+  insightFooter: {
+    paddingTop: 12,
+    paddingHorizontal: 4,
+  },
+  insightFooterText: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    lineHeight: 16,
+    textAlign: 'center',
   },
   resetBtn: {
     marginTop: 12,
