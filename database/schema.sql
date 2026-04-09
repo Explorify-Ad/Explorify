@@ -1,14 +1,9 @@
--- ===========================================
--- Explorify Database Schema
--- ===========================================
--- PostgreSQL schema for the Explorify platform
+-- Explorify Master Schema
+-- Unified Communities, Expeditions, and Quests
 
--- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- ===========================================
--- Users Table
--- ===========================================
+-- ─── Users ───────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email VARCHAR(255) UNIQUE NOT NULL,
@@ -25,76 +20,107 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- ===========================================
--- Landmarks Table
--- ===========================================
+-- ─── Landmarks ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS landmarks (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name VARCHAR(255) NOT NULL,
   latitude DECIMAL(10, 8) NOT NULL,
   longitude DECIMAL(11, 8) NOT NULL,
-  category VARCHAR(50) NOT NULL CHECK (category IN ('historical', 'cultural', 'nature', 'shopping', 'sports', 'architecture', 'landmark')),
+  category VARCHAR(50) NOT NULL,
   accessibility_level INT NOT NULL CHECK (accessibility_level BETWEEN 1 AND 5),
   is_indoor BOOLEAN DEFAULT false,
   description TEXT,
   image_url VARCHAR(500),
   points INT DEFAULT 10,
   avg_visit_duration_min INT DEFAULT 30,
+  tier TEXT DEFAULT 'public',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- ===========================================
--- Collections Table (User visited landmarks)
--- ===========================================
-CREATE TABLE IF NOT EXISTS collections (
+-- ─── Communities ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS communities (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  landmark_id UUID NOT NULL REFERENCES landmarks(id) ON DELETE CASCADE,
-  visited_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  dwell_time_min INT,
-  rating INT CHECK (rating BETWEEN 1 AND 5),
-  notes TEXT,
-  UNIQUE(user_id, landmark_id)
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  theme VARCHAR(50),
+  avatar_url TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- ===========================================
--- Routes Table
--- ===========================================
-CREATE TABLE IF NOT EXISTS routes (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  name VARCHAR(255),
-  landmarks JSONB NOT NULL DEFAULT '[]'::jsonb,
-  total_distance_km DECIMAL(6, 2),
-  estimated_duration_min INT,
-  is_completed BOOLEAN DEFAULT false,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  completed_at TIMESTAMP WITH TIME ZONE
+CREATE TABLE IF NOT EXISTS community_members (
+  community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (community_id, user_id)
 );
 
--- ===========================================
--- Indexes
--- ===========================================
-CREATE INDEX idx_landmarks_category ON landmarks(category);
-CREATE INDEX idx_landmarks_accessibility ON landmarks(accessibility_level);
-CREATE INDEX idx_landmarks_location ON landmarks(latitude, longitude);
-CREATE INDEX idx_collections_user_id ON collections(user_id);
-CREATE INDEX idx_collections_landmark_id ON collections(landmark_id);
-CREATE INDEX idx_routes_user_id ON routes(user_id);
-CREATE INDEX idx_users_email ON users(email);
+CREATE TABLE IF NOT EXISTS community_channels (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  slug VARCHAR(100) NOT NULL,
+  type VARCHAR(20) DEFAULT 'public',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(community_id, slug)
+);
 
--- ===========================================
--- Updated_at trigger function
--- ===========================================
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ language 'plpgsql';
+-- ─── Expeditions (Templates for discovery tasks) ──────────────────────────────
+CREATE TABLE IF NOT EXISTS expeditions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  category VARCHAR(50),
+  difficulty INTEGER DEFAULT 1,
+  reward_xp INTEGER DEFAULT 500,
+  required_count INTEGER DEFAULT 3,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-CREATE TRIGGER update_users_updated_at
-  BEFORE UPDATE ON users
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+-- ─── Quests (Active personal instances of expeditions) ────────────────────────
+CREATE TABLE IF NOT EXISTS quests (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  expedition_id UUID REFERENCES expeditions(id) ON DELETE CASCADE,
+  status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'completed', 'claimed')),
+  progress_count INTEGER DEFAULT 0,
+  started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  completed_at TIMESTAMP WITH TIME ZONE,
+  UNIQUE(user_id, expedition_id)
+);
+
+-- ─── Community Expeditions (Collaborative milestones) ─────────────────────────
+CREATE TABLE IF NOT EXISTS community_expeditions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  community_id UUID REFERENCES communities(id) ON DELETE CASCADE,
+  expedition_id UUID REFERENCES expeditions(id) ON DELETE CASCADE,
+  goal_count INTEGER NOT NULL,
+  current_count INTEGER DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  completed_at TIMESTAMP WITH TIME ZONE,
+  UNIQUE(community_id, expedition_id)
+);
+
+-- ─── Messages ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS messages (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  channel_id UUID REFERENCES community_channels(id) ON DELETE CASCADE,
+  sender_id UUID REFERENCES users(id),
+  sender_name TEXT,
+  content TEXT NOT NULL,
+  type TEXT DEFAULT 'text',
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ─── Seed Data ───────────────────────────────────────────────────────────────
+INSERT INTO communities (name, description, theme) VALUES 
+('Dublin Heritage', 'Exploring the historical essence of Dublin', 'History'),
+('Culinary Trailblazers', 'Discovering the best bites around town', 'Food')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO expeditions (title, description, category, difficulty, reward_xp, required_count) VALUES 
+('Architecture Walk', 'Find 3 key architectural spots', 'Architecture', 3, 600, 3),
+('Street Food Safari', 'Find 4 culinary spots', 'Food', 1, 400, 4),
+('Through the Ages', 'Find 5 historical landmarks', 'History', 2, 550, 5)
+ON CONFLICT DO NOTHING;

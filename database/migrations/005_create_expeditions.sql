@@ -75,6 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_dm
 ALTER TABLE messages REPLICA IDENTITY FULL;
 
 -- ─── updated_at trigger for expeditions ──────────────────────────────────────
+DROP TRIGGER IF EXISTS update_expeditions_updated_at ON expeditions;
 CREATE TRIGGER update_expeditions_updated_at
   BEFORE UPDATE ON expeditions
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -86,18 +87,22 @@ CREATE TRIGGER update_expeditions_updated_at
 -- expeditions: anyone can read active ones; only creator can modify
 ALTER TABLE expeditions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "expeditions_select" ON expeditions;
 CREATE POLICY "expeditions_select"
   ON expeditions FOR SELECT
   USING (true);
 
+DROP POLICY IF EXISTS "expeditions_insert" ON expeditions;
 CREATE POLICY "expeditions_insert"
   ON expeditions FOR INSERT
   WITH CHECK (auth.uid() = created_by);
 
+DROP POLICY IF EXISTS "expeditions_update" ON expeditions;
 CREATE POLICY "expeditions_update"
   ON expeditions FOR UPDATE
   USING (auth.uid() = created_by);
 
+DROP POLICY IF EXISTS "expeditions_delete" ON expeditions;
 CREATE POLICY "expeditions_delete"
   ON expeditions FOR DELETE
   USING (auth.uid() = created_by);
@@ -105,14 +110,17 @@ CREATE POLICY "expeditions_delete"
 -- expedition_members: anyone can read; users can only join as themselves
 ALTER TABLE expedition_members ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "members_select" ON expedition_members;
 CREATE POLICY "members_select"
   ON expedition_members FOR SELECT
   USING (true);
 
+DROP POLICY IF EXISTS "members_insert" ON expedition_members;
 CREATE POLICY "members_insert"
   ON expedition_members FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "members_delete" ON expedition_members;
 CREATE POLICY "members_delete"
   ON expedition_members FOR DELETE
   USING (auth.uid() = user_id);
@@ -120,6 +128,7 @@ CREATE POLICY "members_delete"
 -- messages: only members of the expedition (or parties to a DM) can read/write
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "messages_select_expedition" ON messages;
 CREATE POLICY "messages_select_expedition"
   ON messages FOR SELECT
   USING (
@@ -129,6 +138,7 @@ CREATE POLICY "messages_select_expedition"
     )
   );
 
+DROP POLICY IF EXISTS "messages_select_dm" ON messages;
 CREATE POLICY "messages_select_dm"
   ON messages FOR SELECT
   USING (
@@ -136,6 +146,7 @@ CREATE POLICY "messages_select_dm"
     (sender_id = auth.uid() OR dm_peer_id = auth.uid())
   );
 
+DROP POLICY IF EXISTS "messages_insert_expedition" ON messages;
 CREATE POLICY "messages_insert_expedition"
   ON messages FOR INSERT
   WITH CHECK (
@@ -146,6 +157,7 @@ CREATE POLICY "messages_insert_expedition"
     )
   );
 
+DROP POLICY IF EXISTS "messages_insert_dm" ON messages;
 CREATE POLICY "messages_insert_dm"
   ON messages FOR INSERT
   WITH CHECK (

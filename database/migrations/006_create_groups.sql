@@ -21,5 +21,5 @@ CREATE TABLE IF NOT EXISTS group_members (
   UNIQUE(group_id, user_id)
 );
 
-CREATE INDEX idx_groups_invite_code ON groups(invite_code);
-CREATE INDEX idx_group_members_group_id ON group_members(group_id);
+CREATE INDEX IF NOT EXISTS idx_groups_invite_code ON groups(invite_code);
+CREATE INDEX IF NOT EXISTS idx_group_members_group_id ON group_members(group_id);
