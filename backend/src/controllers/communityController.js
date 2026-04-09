@@ -31,7 +31,8 @@ const joinCommunity = async (req, res, next) => {
 
 const listCommunities = async (req, res, next) => {
   try {
-    const communities = await communityService.listCommunities();
+    const userId = req.user?.id;
+    const communities = await communityService.listCommunities(userId);
     res.json({ data: communities });
   } catch (err) {
     logger.error(`Error listing communities: ${err.message}`);

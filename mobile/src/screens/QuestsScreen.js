@@ -43,7 +43,7 @@ export default function QuestsScreen() {
     navigation.navigate('ExpeditionPreview', {
       isQuest: true,
       expedition: {
-        id: `q_${quest.id}`,
+        id: quest.id,
         title: quest.title,
         description: `Your personal challenge: ${quest.title}`,
         companyType: 'solo',

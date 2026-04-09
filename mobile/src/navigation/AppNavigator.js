@@ -22,6 +22,8 @@ import CommunityScreen from '../screens/CommunityScreen';
 import CommunityChatScreen from '../screens/CommunityChatScreen';
 import MyExpeditionsScreen from '../screens/MyExpeditionsScreen';
 import HomeScreen from '../screens/HomeScreen';
+import DirectMessagesScreen from '../screens/DirectMessagesScreen';
+import DirectChatScreen from '../screens/DirectChatScreen';
 import { useTheme } from '../context/ThemeContext';
 import useStore from '../store/useStore';
 import supabase from '../services/supabase';
@@ -202,6 +204,14 @@ export default function AppNavigator() {
         <Stack.Screen
           name="MyExpeditions"
           component={MyExpeditionsScreen}
+        />
+        <Stack.Screen
+          name="DirectMessages"
+          component={DirectMessagesScreen}
+        />
+        <Stack.Screen
+          name="DirectChat"
+          component={DirectChatScreen}
         />
       </Stack.Navigator>
     </NavigationContainer>

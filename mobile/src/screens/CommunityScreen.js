@@ -27,11 +27,23 @@ export default function CommunityScreen({ navigation }) {
     try {
       await joinCommunity(communityId);
       Alert.alert('Welcome!', `You are now a member of ${name}.`);
+      await fetchCommunities(); // Refresh to update is_member
     } catch (err) {
       Alert.alert('Error', 'Failed to join community.');
     } finally {
       setJoiningId(null);
     }
+  };
+
+  const enterCommunity = (item) => {
+    if (!item.is_member) {
+      Alert.alert('Join First', 'You need to join this community to access the chat channels.');
+      return;
+    }
+    navigation.navigate('CommunityChat', { 
+      community_id: item.id, 
+      community_name: item.name 
+    });
   };
 
   if (loading) {
@@ -54,10 +66,7 @@ export default function CommunityScreen({ navigation }) {
           <TouchableOpacity 
             key={item.id} 
             style={styles.card}
-            onPress={() => navigation.navigate('CommunityChat', { 
-              community_id: item.id, 
-              community_name: item.name 
-            })}
+            onPress={() => enterCommunity(item)}
           >
             <View style={styles.cardContent}>
               <View style={styles.avatarPlaceholder}>
@@ -76,17 +85,23 @@ export default function CommunityScreen({ navigation }) {
                 </View>
               </View>
 
-              <TouchableOpacity 
-                style={styles.joinBtn} 
-                onPress={() => handleJoin(item.id, item.name)}
-                disabled={joiningId === item.id}
-              >
-                {joiningId === item.id ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <PlusCircle size={24} color="#fff" />
-                )}
-              </TouchableOpacity>
+              {item.is_member ? (
+                <View style={[styles.joinBtn, styles.memberBadge]}>
+                   <Users size={20} color="#fff" />
+                </View>
+              ) : (
+                <TouchableOpacity 
+                  style={styles.joinBtn} 
+                  onPress={() => handleJoin(item.id, item.name)}
+                  disabled={joiningId === item.id}
+                >
+                  {joiningId === item.id ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <PlusCircle size={24} color="#fff" />
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
 
             <View style={styles.cardFooter}>
@@ -203,6 +218,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
+  },
+  memberBadge: {
+    backgroundColor: '#10B981',
   },
   cardFooter: {
     flexDirection: 'row',

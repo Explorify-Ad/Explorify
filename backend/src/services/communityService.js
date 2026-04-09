@@ -61,9 +61,20 @@ class CommunityService {
   }
 
   /**
-   * Get all communities.
+   * Get all communities, with membership status for a specific user.
    */
-  async listCommunities() {
+  async listCommunities(userId = null) {
+    if (userId) {
+      const result = await query(
+        `SELECT c.*, 
+                (CASE WHEN cm.user_id IS NOT NULL THEN true ELSE false END) as is_member
+         FROM communities c
+         LEFT JOIN community_members cm ON c.id = cm.community_id AND cm.user_id = $1
+         ORDER BY c.created_at DESC`,
+        [userId]
+      );
+      return result.rows;
+    }
     const result = await query('SELECT * FROM communities ORDER BY created_at DESC');
     return result.rows;
   }

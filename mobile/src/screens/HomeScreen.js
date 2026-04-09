@@ -55,17 +55,22 @@ function UserHeader({ name, level, currentXP, totalXP }) {
         <Text style={styles.greetingText}>{greeting},</Text>
         <Text style={styles.nameText}>{name}</Text>
       </View>
-      <View style={styles.levelBadge}>
-        <LinearGradient
-          colors={[theme.primary, theme.secondary || '#F97316']}
-          style={styles.levelGradient}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-        >
-          <Text style={styles.levelLabel}>LVL</Text>
-          <Text style={styles.levelValue}>{level}</Text>
-        </LinearGradient>
-        <View style={styles.xpTrack}>
-          <View style={[styles.xpProgress, { width: `${progress}%`, backgroundColor: theme.primary }]} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
+        <TouchableOpacity onPress={() => navigation.navigate('DirectMessages')}>
+          <MessageCircle size={26} color="#1A1A2E" strokeWidth={2} />
+        </TouchableOpacity>
+        <View style={styles.levelBadge}>
+          <LinearGradient
+            colors={[theme.primary, theme.secondary || '#F97316']}
+            style={styles.levelGradient}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+          >
+            <Text style={styles.levelLabel}>LVL</Text>
+            <Text style={styles.levelValue}>{level}</Text>
+          </LinearGradient>
+          <View style={styles.xpTrack}>
+            <View style={[styles.xpProgress, { width: `${progress}%`, backgroundColor: theme.primary }]} />
+          </View>
         </View>
       </View>
     </View>
