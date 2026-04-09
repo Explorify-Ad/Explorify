@@ -70,6 +70,8 @@ const useStore = create((set, get) => ({
   completedQuests: [],     // quest ids whose XP has been claimed
   questBonusXP: 0,         // cumulative XP earned from quest + daily completions
   dailyClaimed: {},        // { 'Mon Apr 01 2026': true }
+  walkPaceSamples: [],     // [{ distanceM, durationSec, paceKmh, timestamp }] — last 10
+  lastCheckIn: null,       // { lat, lon, timestamp } — used to compute walk segments
   hydrated: false,
 
   // ─── Auth state (not persisted — Supabase session handles it) ─────────────
@@ -108,17 +110,58 @@ const useStore = create((set, get) => ({
   },
 
   checkIn: async (landmark) => {
-    const { collection, authUser } = get();
+    const { collection, authUser, lastCheckIn } = get();
     if (collection.find((c) => String(c.id) === String(landmark.id))) return 0;
+
+    // Record a walking pace sample if we have a recent previous check-in
+    const now = Date.now();
+    if (lastCheckIn) {
+      const elapsedSec = (now - lastCheckIn.timestamp) / 1000;
+      const elapsedMin = elapsedSec / 60;
+      // Only count walks between 2 and 90 minutes (filters out pauses and overnight gaps)
+      if (elapsedMin >= 2 && elapsedMin <= 90) {
+        const { haversineDistance } = require('../services/tomtom');
+        const distM = haversineDistance(
+          lastCheckIn.lat, lastCheckIn.lon,
+          landmark.lat ?? landmark.latitude,
+          landmark.lon ?? landmark.longitude,
+        );
+        // Only count walks between 50 m and 5 km
+        if (distM >= 50 && distM <= 5000) {
+          get().recordWalkSegment(distM, elapsedSec);
+        }
+      }
+    }
+
     const xp = TIER_XP[landmark.tier] || 150;
     const entry = { ...landmark, checkedInAt: new Date().toISOString(), xpEarned: xp };
-    set((state) => ({ collection: [...state.collection, entry] }));
+    set((state) => ({
+      collection: [...state.collection, entry],
+      lastCheckIn: {
+        lat: landmark.lat ?? landmark.latitude,
+        lon: landmark.lon ?? landmark.longitude,
+        timestamp: now,
+      },
+    }));
     await get()._persist();
     if (authUser?.id) {
       const { saveCheckIn } = await import('../services/supabase');
       await saveCheckIn(authUser.id, landmark, xp);
     }
     return xp;
+  },
+
+  recordWalkSegment: async (distanceM, durationSec) => {
+    const paceKmh = (distanceM / 1000) / (durationSec / 3600);
+    // Sanity check: only accept realistic walking speeds (1–10 km/h)
+    if (paceKmh < 1 || paceKmh > 10) return;
+    set((state) => ({
+      walkPaceSamples: [
+        ...state.walkPaceSamples.slice(-9),
+        { distanceM, durationSec, paceKmh, timestamp: Date.now() },
+      ],
+    }));
+    await get()._persist();
   },
 
   setActiveQuest: async (questId) => {
@@ -153,6 +196,14 @@ const useStore = create((set, get) => ({
   },
 
   // ─── Computed getters ─────────────────────────────────────────────────────
+
+  /** Returns learned walk pace in km/h. Falls back to 4.5 until 2+ samples exist. */
+  getWalkPaceKmh: () => {
+    const { walkPaceSamples } = get();
+    if (walkPaceSamples.length < 2) return 4.5;
+    const avg = walkPaceSamples.reduce((s, p) => s + p.paceKmh, 0) / walkPaceSamples.length;
+    return Math.max(1.5, Math.min(8, avg)); // clamp to realistic range
+  },
 
   getTotalXP: () =>
     get().collection.reduce((s, c) => s + (c.xpEarned || 150), 0) + get().questBonusXP,
@@ -338,6 +389,7 @@ const useStore = create((set, get) => ({
     const {
       hasOnboarded, userName, interests, visitorType, collection,
       activeQuestId, completedQuests, questBonusXP, dailyClaimed,
+      walkPaceSamples, lastCheckIn,
     } = get();
     try {
       await AsyncStorage.setItem(
@@ -345,6 +397,7 @@ const useStore = create((set, get) => ({
         JSON.stringify({
           hasOnboarded, userName, interests, visitorType, collection,
           activeQuestId, completedQuests, questBonusXP, dailyClaimed,
+          walkPaceSamples, lastCheckIn,
         }),
       );
     } catch {}

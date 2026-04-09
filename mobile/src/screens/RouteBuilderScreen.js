@@ -45,10 +45,8 @@ const TIME_OPTIONS = [
 
 const CATEGORIES = ['Architecture', 'Food', 'Nature', 'History', 'Art', 'Nightlife'];
 
-const WALK_SPEED_KMH = 4.5;
-
-function walkMinutes(distanceMeters) {
-  return Math.round((distanceMeters / 1000 / WALK_SPEED_KMH) * 60);
+function walkMinutes(distanceMeters, walkSpeedKmh) {
+  return Math.round((distanceMeters / 1000 / walkSpeedKmh) * 60);
 }
 
 // ─── Weather banner ───────────────────────────────────────────────────────────
@@ -161,10 +159,12 @@ export default function RouteBuilderScreen() {
   const { tier: batteryTier, getAdjustedBudget } = useBattery();
   const { weather } = useWeather(location?.latitude, location?.longitude);
 
-  const interests     = useStore((s) => s.interests);
-  const visitorType   = useStore((s) => s.visitorType);
-  const collection    = useStore((s) => s.collection);
-  const authUser      = useStore((s) => s.authUser);
+  const interests      = useStore((s) => s.interests);
+  const visitorType    = useStore((s) => s.visitorType);
+  const collection     = useStore((s) => s.collection);
+  const authUser       = useStore((s) => s.authUser);
+  const getWalkPaceKmh = useStore((s) => s.getWalkPaceKmh);
+  const walkPaceSamples = useStore((s) => s.walkPaceSamples);
 
   const [timeBudget,       setTimeBudget]       = useState(60);
   const [selectedCats,     setSelectedCats]     = useState([]);
@@ -273,7 +273,8 @@ export default function RouteBuilderScreen() {
       }));
 
       // 6. Build route (nearest-neighbor within time budget)
-      const built = buildRoute(coords, augmented, adjusted);
+      const walkSpeedKmh = getWalkPaceKmh();
+      const built = buildRoute(coords, augmented, adjusted, walkSpeedKmh);
 
       if (!built.length) {
         Alert.alert('Not enough time', 'Try a longer time budget or more categories.');
@@ -290,7 +291,7 @@ export default function RouteBuilderScreen() {
       const enriched = built.map((lm, i) => {
         const { haversineDistance } = require('../services/tomtom');
         const distM = haversineDistance(prev.latitude, prev.longitude, lm.lat ?? lm.latitude, lm.lon ?? lm.longitude);
-        const wMin = i === 0 ? 0 : walkMinutes(distM);
+        const wMin = i === 0 ? 0 : walkMinutes(distM, walkSpeedKmh);
         const vMin = lm.avg_visit_duration_min || 30;
         totalWalk  += wMin;
         totalVisit += vMin;
@@ -339,6 +340,14 @@ export default function RouteBuilderScreen() {
       >
         {/* Context banners */}
         <WeatherBanner weather={weather} />
+        {walkPaceSamples.length >= 2 && (
+          <View style={[styles.banner, { backgroundColor: '#F0FDF4' }]}>
+            <Route size={14} color="#166534" strokeWidth={2} />
+            <Text style={[styles.bannerText, { color: '#166534' }]}>
+              Using your pace · {getWalkPaceKmh().toFixed(1)} km/h ({walkPaceSamples.length} trips recorded)
+            </Text>
+          </View>
+        )}
         <BatteryBanner
           tier={batteryTier}
           originalBudget={timeBudget}

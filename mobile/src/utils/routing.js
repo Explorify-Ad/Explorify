@@ -7,7 +7,7 @@ import { calculateDistance } from './distance';
  * @param {number} timeBudgetMin - Available time in minutes
  * @returns {Array} Ordered array of landmarks for the route
  */
-export const buildRoute = (start, landmarks, timeBudgetMin) => {
+export const buildRoute = (start, landmarks, timeBudgetMin, walkSpeedKmh = 4.5) => {
   // TODO: Implement route optimization algorithm
   // TODO: Consider accessibility constraints
   // TODO: Factor in visit duration at each landmark
@@ -37,7 +37,7 @@ export const buildRoute = (start, landmarks, timeBudgetMin) => {
 
     if (nearestDist === Infinity) break; // no valid landmarks left
 
-    const walkTime = (nearestDist / 4.5) * 60; // moderate pace
+    const walkTime = (nearestDist / walkSpeedKmh) * 60;
     const visitTime = remaining[nearestIdx].avg_visit_duration_min || 30;
 
     if (totalTime + walkTime + visitTime > timeBudgetMin) break;
