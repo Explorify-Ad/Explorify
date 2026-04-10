@@ -148,6 +148,75 @@ export default function ProfileScreen() {
           ))}
         </View>
 
+        <TouchableOpacity 
+          style={[styles.visitorTypeContainer, { marginTop: 0, padding: 12, borderStyle: 'dashed', borderWidth: 1, borderColor: theme.primary, borderRadius: 16 }]}
+          onPress={() => navigation.navigate('Onboarding')}
+        >
+          <Text style={{ textAlign: 'center', width: '100%', color: theme.primary, fontWeight: '700' }}>✨ Redo Onboarding / Edit Interests</Text>
+        </TouchableOpacity>
+
+
+        {/* Detail Level Selection */}
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginTop: 10 }]}>Information Density</Text>
+        <View style={styles.visitorTypeContainer}>
+          {[
+            { id: 'overview', label: '📖 Overview', desc: 'Short, punchy summaries.' },
+            { id: 'deep dive', label: '🎓 Deep Dive', desc: 'Rich architectural history.' }
+          ].map((type) => (
+            <TouchableOpacity
+              key={type.id}
+              style={[
+                styles.visitorOption,
+                preferences.detail_level === type.id && { borderColor: theme.primary, backgroundColor: `${theme.primary}10` }
+              ]}
+              onPress={() => setPreferences({ detail_level: type.id })}
+            >
+              <Text style={[styles.visitorLabel, preferences.detail_level === type.id && { color: theme.primary }]}>
+                {type.label}
+              </Text>
+              <Text style={styles.visitorDesc}>{type.desc}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Language Selection */}
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginTop: 10 }]}>Primary Language</Text>
+        <View style={styles.visitorTypeContainer}>
+          {[
+            { id: 'en', label: '🇬🇧 English' },
+            { id: 'es', label: '🇪🇸 Español' },
+            { id: 'fr', label: '🇫🇷 Français' }
+          ].map((type) => (
+            <TouchableOpacity
+              key={type.id}
+              style={[
+                styles.visitorOption,
+                { alignItems: 'center', padding: 12 },
+                preferences.language_pref === type.id && { borderColor: theme.primary, backgroundColor: `${theme.primary}10` }
+              ]}
+              onPress={() => setPreferences({ language_pref: type.id })}
+            >
+              <Text style={[styles.visitorLabel, { marginBottom: 0 }, preferences.language_pref === type.id && { color: theme.primary }]}>
+                {type.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <TouchableOpacity 
+          style={[styles.visitorOption, { marginTop: 10, borderColor: theme.primary, backgroundColor: `${theme.primary}05`, width: '100%' }]}
+          onPress={() => {
+            const fetchRefinement = useStore.getState().fetchRefinement;
+            fetchRefinement().then(() => {
+              const msg = useStore.getState().refinementMessage;
+              if (msg) Alert.alert('Explorer Assistant', msg);
+            });
+          }}
+        >
+          <Text style={[styles.visitorLabel, { color: theme.primary, textAlign: 'center', marginBottom: 0 }]}>🧠 Refine My Taste (AI Insight)</Text>
+        </TouchableOpacity>
+
+
         {/* Behavioral Insights — full scrutability */}
         <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>How Explorify Adapts to You</Text>
         <View style={[styles.insightsCard, { backgroundColor: 'white' }]}>

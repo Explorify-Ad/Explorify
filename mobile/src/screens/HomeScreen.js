@@ -117,6 +117,31 @@ function WeatherWidget({ weather }) {
   );
 }
 
+// ─── Drift Notification banner (Phase 8.3) ───────────────────────────────────
+
+function DriftNotification() {
+  const driftAlert = useStore(s => s.driftAlert);
+  if (!driftAlert) return null;
+
+  return (
+    <TouchableOpacity 
+      style={[styles.adaptiveCard, { backgroundColor: '#FFF7ED', borderColor: '#FDBA74', borderWidth: 1 }]}
+      onPress={() => Alert.alert('Evolving Tastes', `We noticed you've been exploring more ${driftAlert.to} lately instead of ${driftAlert.from}. Your profile has been slightly adapted to match this trend.`)}
+    >
+      <View style={styles.adaptiveInner}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Sparkles size={18} color="#EA580C" />
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#9A3412' }}>Your tastes are evolving!</Text>
+        </View>
+        <Text style={{ fontSize: 12, color: '#C2410C', marginTop: 4 }}>
+          You're moving from {driftAlert.from} towards {driftAlert.to}. 
+          Tap to learn more.
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 // ─── Adaptive Profile Card (Scrutability) ───────────────────────────────────
 
 function AdaptiveProfileCard({ preferences, interests, collection, weather, navigation }) {
@@ -216,6 +241,78 @@ function AdaptiveProfileCard({ preferences, interests, collection, weather, navi
   );
 }
 
+// ─── Journey Progress (Phase 3.2) ────────────────────────────────────────────
+
+function JourneyProgressWidget({ collection }) {
+  const allCats = ['History', 'Food', 'Nature', 'Architecture', 'Art', 'Nightlife'];
+  const exploredCats = new Set();
+  
+  collection.forEach(c => {
+    let cat = c.category;
+    if (cat === 'historical') cat = 'History';
+    else if (cat === 'cultural') cat = 'Art';
+    else if (cat === 'shopping') cat = 'Food';
+    else if (cat === 'nature') cat = 'Nature';
+    else if (cat === 'landmark') cat = 'Architecture';
+    else if (cat === 'nightlife') cat = 'Nightlife';
+    else cat = 'Architecture';
+    exploredCats.add(cat);
+  });
+
+  const exploredCount = Math.min(allCats.filter(c => exploredCats.has(c)).length, 6);
+  const nextTarget = allCats.find(c => !exploredCats.has(c)) || 'Hidden Gems';
+
+  return (
+    <View style={[styles.adaptiveCard, { backgroundColor: '#F0F9FF', marginBottom: 20 }]}>
+      <View style={styles.adaptiveInner}>
+        <View style={styles.adaptiveHeader}>
+          <Text style={[styles.adaptiveTitle, { color: '#0369A1' }]}>Dublin Explorer Journey</Text>
+        </View>
+        <Text style={{ fontSize: 13, color: '#0C4A6E', marginBottom: 8, fontWeight: '500' }}>
+          You've explored {exploredCount} of 6 city domains.
+        </Text>
+        <Text style={{ fontSize: 12, color: '#0EA5E9' }}>
+          Try investigating {nextTarget} next for a complete picture.
+        </Text>
+        <View style={{ height: 6, backgroundColor: '#BAE6FD', borderRadius: 3, marginTop: 12 }}>
+          <View style={{ height: '100%', width: `${(exploredCount/6)*100}%`, backgroundColor: '#0284C7', borderRadius: 3 }}/>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── Progressive Profile Enrichment (Phase 2.2) ───────────────────────────────
+
+function ConversationalRefinement() {
+  const message = useStore((s) => s.refinementMessage);
+  if (!message) return null;
+  return (
+    <View style={[styles.adaptiveCard, { backgroundColor: '#F5F3FF', marginBottom: 20 }]}>
+      <View style={styles.adaptiveInner}>
+        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 6}}>
+          <Text style={{fontSize: 16, marginRight: 6}}>🤖</Text>
+          <Text style={{fontWeight: '800', color: '#5B21B6'}}>AI Companion</Text>
+        </View>
+        <Text style={{fontSize: 13, color: '#4C1D95', lineHeight: 18}}>{message}</Text>
+      </View>
+    </View>
+  );
+}
+
+function ProgressiveEnrichment({ collection, navigation }) {
+  const len = collection.length;
+  if (len !== 5 && len !== 10) return null;
+  return (
+    <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={[styles.adaptiveCard, { backgroundColor: '#FEF3C7', marginBottom: 20 }]} activeOpacity={0.8}>
+      <View style={styles.adaptiveInner}>
+         <Text style={{fontWeight: '800', color: '#92400E', marginBottom: 4}}>We're learning your style 🧠</Text>
+         <Text style={{fontSize: 12, color: '#B45309'}}>You've made {len} check-ins. Review your generated Explorer Type and adjust manually if needed.</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 // ─── Quick Stats ─────────────────────────────────────────────────────────────
 
 function QuickStats({ stats }) {
@@ -282,6 +379,9 @@ export default function HomeScreen({ navigation }) {
 
       <WeatherWidget weather={weather} />
 
+      <DriftNotification />
+
+
       {/* Scrutability: Adaptive Profile Summary */}
       <AdaptiveProfileCard
         preferences={preferences}
@@ -290,6 +390,11 @@ export default function HomeScreen({ navigation }) {
         weather={weather}
         navigation={navigation}
       />
+
+      <JourneyProgressWidget collection={collection} />
+      <ProgressiveEnrichment collection={collection} navigation={navigation} />
+
+      <ConversationalRefinement />
 
       <QuickStats stats={stats} />
 

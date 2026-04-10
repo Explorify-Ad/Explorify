@@ -1,0 +1,11 @@
+const jest = require('jest-mock');
+
+module.exports = {
+  query: jest.fn().mockImplementation((sql, params) => {
+    return Promise.resolve({ rows: [] });
+  }),
+  pool: {
+    on: jest.fn(),
+    end: jest.fn(),
+  }
+};

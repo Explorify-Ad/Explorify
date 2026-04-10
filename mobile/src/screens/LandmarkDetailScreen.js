@@ -20,6 +20,7 @@ import { CATEGORY_COLORS } from '../utils/theme';
 import { CATEGORY_ICONS } from '../components/explorify/PinDetailModal';
 import useStore from '../store/useStore';
 import FeedbackModal from '../components/FeedbackModal';
+import api from '../services/api';
 
 const { width: W, height: H } = Dimensions.get('window');
 const CHECK_IN_RANGE = 100;
@@ -55,6 +56,8 @@ export default function LandmarkDetailScreen() {
   const [showFeedback, setShowFeedback] = useState(false);
   const [xpEarned,  setXpEarned]  = useState(tierMeta.xp);
   const [arriveTime, setArriveTime] = useState(null);
+  const [personalisedDesc, setPersonalisedDesc] = useState(null);
+  const [loadingAI, setLoadingAI] = useState(false);
 
   // Animations
   const sheetY       = useRef(new Animated.Value(H)).current;
@@ -102,6 +105,26 @@ export default function LandmarkDetailScreen() {
       );
     };
     startTracking();
+
+    // Fetch AI description (Phase 8.1)
+    if (landmark?.id) {
+      const state = useStore.getState();
+      setLoadingAI(true);
+      api.post('/landmarks/describe', {
+        landmark_id: landmark.id,
+        user_profile: {
+          visitor_type: state.preferences?.visitor_type || 'tourist',
+          interests: state.interests || [],
+          level: state.getLevel(),
+          detail_level: state.preferences?.detail_level || 'overview',
+          language_pref: state.preferences?.language_pref || 'en'
+        }
+      })
+      .then(res => setPersonalisedDesc(res.data.description))
+      .catch(() => {})
+      .finally(() => setLoadingAI(false));
+    }
+
     return () => { sub?.remove(); setMode('exploration'); };
   }, []);
 
@@ -218,8 +241,18 @@ export default function LandmarkDetailScreen() {
             )}
           </View>
 
-          <Text style={styles.desc}>{description || `Discover the story behind this ${category.toLowerCase()} landmark. Check in when you arrive to earn XP and unlock its full history.`}</Text>
-
+          <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4}}>
+            <Text style={{fontSize: 14, fontWeight: '700', color: '#374151'}}>Story generated for you 🪄</Text>
+            {loadingAI && <ActivityIndicator size="small" color={catColor} />}
+          </View>
+          <Text style={styles.desc}>{personalisedDesc || description || 'A fascinating place'}</Text>
+          
+          {landmark?.story_fragment && (
+            <View style={{ backgroundColor: '#FDF2F8', padding: 12, borderRadius: 12, marginTop: 16 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#BE185D', marginBottom: 4 }}>📜 Story Chapter</Text>
+              <Text style={{ fontSize: 13, color: '#BE185D', fontStyle: 'italic' }}>{landmark.story_fragment}</Text>
+            </View>
+          )}
           <View style={[styles.proxCard, isInRange && { borderColor: '#22c55e' + '55' }]}>
             {isInRange ? (
               <View style={styles.inRangeWrap}>

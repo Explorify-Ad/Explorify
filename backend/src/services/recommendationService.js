@@ -58,20 +58,40 @@ class RecommendationService {
       userPoints = dbResult.rows[0]?.total_points || 0;
 
       const visited = await query(
-        'SELECT landmark_id, landmark_category FROM collections WHERE user_id = $1',
+        'SELECT landmark_id, landmark_category, rating, checked_in_at FROM collections WHERE user_id = $1',
         [userId]
       );
       visitedIds = new Set(visited.rows.map((r) => r.landmark_id));
       collectionCount = visited.rows.length;
 
-      // Extract category counts for novelty bonus
+      // Extract time-decayed category counts for novelty bonus
       const counts = {};
+      const ratingSums = {};
+      const ratingCounts = {};
+      const now = Date.now();
+
       visited.rows.forEach(r => {
         if (r.landmark_category) {
-          counts[r.landmark_category] = (counts[r.landmark_category] || 0) + 1;
+          let weight = 1;
+          if (r.checked_in_at) {
+            const daysDiff = (now - new Date(r.checked_in_at).getTime()) / (1000 * 60 * 60 * 24);
+            weight = Math.exp(-daysDiff / 30.0);
+          }
+          counts[r.landmark_category] = (counts[r.landmark_category] || 0) + weight;
+
+          if (r.rating > 0) {
+            ratingSums[r.landmark_category] = (ratingSums[r.landmark_category] || 0) + r.rating;
+            ratingCounts[r.landmark_category] = (ratingCounts[r.landmark_category] || 0) + 1;
+          }
         }
       });
       preferences.category_counts = counts;
+      
+      const ratingMap = {};
+      for (const cat in ratingSums) {
+        ratingMap[cat] = ratingSums[cat] / ratingCounts[cat];
+      }
+      preferences.ratingMap = ratingMap;
     }
 
     // Detect cold start
@@ -415,6 +435,13 @@ class RecommendationService {
         score += novelty;
         reasons.push('🔄 New Category for You');
       }
+    }
+
+    // 9.5 Rating Feedback Loop
+    if (preferences.ratingMap) {
+      const userRating = preferences.ratingMap[landmark.category] ?? 3.0;
+      const ratingBonus = ((userRating - 3.0) / 2.0) * 10; // Scale to +/- 10
+      score += ratingBonus;
     }
 
     // 10. Points value (Small weight for global ranking)

@@ -34,4 +34,22 @@ router.get('/', getAllLandmarks);
 // GET /api/landmarks/:id - Get landmark by ID
 router.get('/:id', getLandmarkById);
 
+// POST /api/landmarks/describe - Get personalized AI description
+router.post('/describe', authenticate, async (req, res, next) => {
+  try {
+    const { query } = require('../config/database');
+    const llmService = require('../services/llmService');
+    const { landmark_id, user_profile } = req.body;
+
+    const result = await query('SELECT * FROM landmarks WHERE id = $1', [landmark_id]);
+    const landmark = result.rows[0];
+    if (!landmark) return res.status(404).json({ error: 'Landmark not found' });
+
+    const response = await llmService.getPersonalisedDescription(landmark, user_profile);
+    res.json(response);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

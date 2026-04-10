@@ -206,6 +206,14 @@ export default function MapScreen() {
   const QUEST_BOTTOM = 10;
   const FAB_BOTTOM = QUEST_BOTTOM + 72;
 
+  // Narrative Quest Locking (Phase 7.3)
+  const isNarrative = activeQuest?.isNarrative;
+  const filteredLandmarks = isNarrative 
+    ? [landmarks[progress % landmarks.length]] // Only show the next one in sequence
+    : landmarks;
+
+  const refinedLandmarks = (filteredLandmarks || []).filter(Boolean);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.surface || '#fff' }]}>
       {userLocation ? (
@@ -213,7 +221,7 @@ export default function MapScreen() {
           ref={mapRef}
           lat={userLocation.latitude}
           lon={userLocation.longitude}
-          landmarks={landmarks}
+          landmarks={refinedLandmarks}
           expeditions={expeditions}
           primaryColor={theme.primary}
           style={StyleSheet.absoluteFill}
@@ -336,7 +344,7 @@ export default function MapScreen() {
         style={[
           styles.fab,
           {
-            bottom: FAB_BOTTOM,
+            bottom: FAB_BOTTOM + 80, // Moved up to leave space for Next Best
             left: 16,
             backgroundColor: '#FF6B6B',
           },
@@ -344,6 +352,26 @@ export default function MapScreen() {
       >
         <Text style={styles.fabEmoji}>＋</Text>
       </Pressable>
+
+      {/* Next Best Local Guidance */}
+      {refinedLandmarks.length > 0 && !showSheet && (
+        <View style={[styles.nextBestCard, { bottom: FAB_BOTTOM - 20 }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.nextBestLabel}>
+              {isNarrative ? 'Next Quest Step 🛡️' : 'Next Best 🚀'}
+            </Text>
+            <Text style={styles.nextBestTitle} numberOfLines={1}>{refinedLandmarks[0].name}</Text>
+            <Text style={styles.nextBestReason} numberOfLines={1}>
+              {isNarrative 
+                ? `Story progress: Step ${progress + 1}` 
+                : (refinedLandmarks[0].ai_reasons ? refinedLandmarks[0].ai_reasons[0] : (refinedLandmarks[0].reasons ? refinedLandmarks[0].reasons[0] : 'Matches your profile'))}
+            </Text>
+          </View>
+          <Pressable style={styles.nextBestGoBtn} onPress={() => goToLandmark(refinedLandmarks[0].id)}>
+            <Text style={{ color: 'white', fontWeight: '800', fontSize: 13 }}>Go</Text>
+          </Pressable>
+        </View>
+      )}
 
       {showSheet && (
         <>
@@ -650,4 +678,29 @@ const styles = StyleSheet.create({
     marginHorizontal: 10,
     alignSelf: 'center',
   },
+  nextBestCard: {
+    position: 'absolute',
+    left: 88, right: 88,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 20,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 6,
+    zIndex: 15,
+  },
+  nextBestLabel: { color: '#F59E0B', fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  nextBestTitle: { fontSize: 14, fontWeight: '700', color: '#1F2937', marginVertical: 2 },
+  nextBestReason: { fontSize: 11, color: '#6B7280' },
+  nextBestGoBtn: {
+    backgroundColor: '#3B82F6',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginLeft: 10,
+  }
 });
