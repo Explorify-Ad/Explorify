@@ -2,6 +2,7 @@ const { query } = require('../config/database');
 const { calculateDistance } = require('../utils/distance');
 const recommendationService = require('./recommendationService');
 const weatherService = require('./weatherService');
+const llmService = require('./llmService');
 
 // Maps backend DB category enum → normalised app category name
 const BACKEND_TO_APP_CAT = {
@@ -175,6 +176,14 @@ function calculateScoreWithReasons(landmark, current, context) {
   const noveltyRes   = getNoveltyBonus(landmark, categoryCounts);
   const coldStartRes = isColdStart ? getColdStartBonus(landmark, preferences || {}) : { bonus: 0, reason: null };
 
+  let ratingRes = { bonus: 0, reason: null };
+  if (preferences?.ratingMap) {
+    const appCat = BACKEND_TO_APP_CAT[landmark.category] || landmark.category;
+    const userRating = preferences.ratingMap[appCat] ?? 3.0;
+    ratingRes.bonus = ((userRating - 3.0) / 2.0) * 0.10;
+    if (userRating >= 4.0) ratingRes.reason = '⭐ Top Rated Category';
+  }
+
   // Collect all non-null reasons
   const reasons = [
     weatherRes.reason,
@@ -182,6 +191,7 @@ function calculateScoreWithReasons(landmark, current, context) {
     diffRes.reason,
     noveltyRes.reason,
     coldStartRes.reason,
+    ratingRes.reason,
   ].filter(Boolean);
 
   // Add time-slot reason
@@ -208,7 +218,8 @@ function calculateScoreWithReasons(landmark, current, context) {
     weatherRes.bonus      * 0.08 +
     visitorRes.bonus      * 0.05 +
     diffRes.bonus         * 0.04 +
-    coldStartRes.bonus    * 0.09  // Cold start gets meaningful weight for new users
+    coldStartRes.bonus    * 0.09 +
+    ratingRes.bonus       // Feedback loop rating bonus
   );
 
   return { score: compositeScore, reasons: reasons.slice(0, 3) };
@@ -217,6 +228,13 @@ function calculateScoreWithReasons(landmark, current, context) {
 // ─── Route service ────────────────────────────────────────────────────────────
 
 class RouteService {
+  calculateScoreWithReasons = calculateScoreWithReasons;
+  getTimeOfDayBonus = getTimeOfDayBonus;
+  getWeatherBonus = getWeatherBonus;
+  getVisitorTypeBonus = getVisitorTypeBonus;
+  getDifficultyBonus = getDifficultyBonus;
+  getNoveltyBonus = getNoveltyBonus;
+
   /**
    * Generate an optimized route.
    */
@@ -254,7 +272,7 @@ class RouteService {
 
     if (userId) {
       try {
-        const [userResult, dwellResult, countResult, catCountResult] = await Promise.all([
+        const [userResult, dwellResult, countResult, catCountResult, ratingMapResult] = await Promise.all([
           query('SELECT total_points, preferences FROM users WHERE id = $1', [userId]),
           query(
             `SELECT l.category, AVG(c.dwell_time_min)::int AS avg_dwell
@@ -268,10 +286,18 @@ class RouteService {
           ),
           query('SELECT COUNT(*) as cnt FROM collections WHERE user_id = $1', [userId]),
           query(
-            `SELECT l.category, COUNT(*)::int as cnt
+            `SELECT l.category, SUM(EXP(-EXTRACT(EPOCH FROM (NOW() - COALESCE(c.checked_in_at, c.visited_at))) / (30 * 86400.0)))::float AS cnt
              FROM collections c
              JOIN landmarks l ON l.id = c.landmark_id
              WHERE c.user_id = $1
+             GROUP BY l.category`,
+            [userId]
+          ),
+          query(
+            `SELECT l.category, AVG(c.rating)::float as avg_rating
+             FROM collections c
+             JOIN landmarks l ON l.id = c.landmark_id
+             WHERE c.user_id = $1 AND c.rating > 0
              GROUP BY l.category`,
             [userId]
           )
@@ -282,6 +308,14 @@ class RouteService {
           catCountResult.rows.forEach(({ category, cnt }) => {
             const appCat = BACKEND_TO_APP_CAT[category] || category;
             categoryCounts[appCat] = cnt;
+          });
+        }
+
+        if (ratingMapResult && ratingMapResult.rows.length > 0) {
+          userPrefs.ratingMap = {};
+          ratingMapResult.rows.forEach(({ category, avg_rating }) => {
+            const appCat = BACKEND_TO_APP_CAT[category] || category;
+            userPrefs.ratingMap[appCat] = avg_rating;
           });
         }
 
@@ -369,6 +403,21 @@ class RouteService {
       context,
       visitedIds,
     );
+
+    // Phase 4.4 Natural Language Scrutability
+    // Generate personalised descriptions and reasons for the selected landmarks
+    for (const lm of route) {
+      try {
+        const [descRes, reasonRes] = await Promise.all([
+          llmService.getPersonalisedDescription(lm, merged),
+          llmService.getRouteReasons(lm, context)
+        ]);
+        lm.personalised_description = descRes.description;
+        lm.ai_reasons = reasonRes;
+      } catch (err) {
+        // fail gracefully if LLM offline
+      }
+    }
 
     // Build the response
     const routeResponse = {
