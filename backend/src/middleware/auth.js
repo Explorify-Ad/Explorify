@@ -35,22 +35,28 @@ const authenticate = async (req, res, next) => {
     }
 
     // Implicitly sign up/sync user to our local DB
-    const existingUser = await query('SELECT id, preferences, total_points FROM users WHERE id = $1', [user.id]);
-    let dbUser;
-    
-    if (existingUser.rows.length === 0) {
-      // Create user record in our DB
-      const displayName = user.email ? user.email.split('@')[0] : 'User';
-      const result = await query(
-        'INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3) RETURNING *',
-        [user.id, user.email || 'test@example.com', displayName]
-      );
-      dbUser = result.rows[0];
-    } else {
-      dbUser = existingUser.rows[0];
+    // RESILIENCE: If DB connection times out, we still let the user proceed as we have valid Supabase Auth
+    let dbUser = { preferences: {}, total_points: 0 };
+    try {
+      const existingUser = await query('SELECT id, preferences, total_points FROM users WHERE id = $1', [user.id]);
+      
+      if (existingUser.rows.length === 0) {
+        // Create user record in our DB
+        const displayName = user.email ? user.email.split('@')[0] : 'User';
+        const result = await query(
+          'INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3) RETURNING *',
+          [user.id, user.email || 'test@example.com', displayName]
+        );
+        dbUser = result.rows[0];
+      } else {
+        dbUser = existingUser.rows[0];
+      }
+    } catch (dbErr) {
+      console.warn('Auth Middleware: DB sync failed but proceeding with Supabase Auth:', dbErr.message);
+      // We continue since user is authenticated by Supabase. 
+      // This is crucial for university networks where DB ports might be intermittently blocked.
     }
 
-    // console.log('Auth middleware user:', user);
     req.user = {
       ...user,
       preferences: dbUser.preferences || {},
@@ -58,11 +64,11 @@ const authenticate = async (req, res, next) => {
     };
     next();
   } catch (err) {
-    console.error('Auth Middleware Error:', err);
+    console.error('Auth Middleware Critical Error:', err);
     return res.status(500).json({
       error: {
         code: 'INTERNAL_ERROR',
-        message: 'Authentication failed',
+        message: 'Authentication service encountered a critical error',
       },
     });
   }

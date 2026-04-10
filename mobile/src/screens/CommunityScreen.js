@@ -62,7 +62,16 @@ export default function CommunityScreen({ navigation }) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        {communities.map((item) => (
+        {communities.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Users size={48} color="#CBD5E1" style={{ marginBottom: 16 }} />
+            <Text style={styles.emptyTitle}>No Communities Found</Text>
+            <Text style={styles.emptySub}>We couldn't load any communities. Please check your connection and try again.</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={loadData}>
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : communities.map((item) => (
           <TouchableOpacity 
             key={item.id} 
             style={styles.card}
@@ -236,5 +245,33 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#64748B',
+  },
+  emptyState: {
+    alignItems: 'center',
+    marginTop: 60,
+    paddingHorizontal: 40,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 8,
+  },
+  emptySub: {
+    fontSize: 14,
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  retryBtn: {
+    backgroundColor: '#2E86AB',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryText: {
+    color: '#fff',
+    fontWeight: '700',
   },
 });

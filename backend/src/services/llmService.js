@@ -32,7 +32,7 @@ class LlmService {
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        model: "llama3-8b-8192", // We use LLaMA 3 8B because it is blazing fast on Groq!
+        model: "llama-3.1-8b-instant", // We use LLaMA 3 8B because it is blazing fast on Groq!
         max_tokens: 150,
         temperature: 0.7,
       });
@@ -56,7 +56,7 @@ class LlmService {
     try {
       const chatCompletion = await groq.chat.completions.create({
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-        model: "llama3-8b-8192", max_tokens: 80, temperature: 0.7, response_format: { type: "json_object" }
+        model: "llama-3.1-8b-instant", max_tokens: 80, temperature: 0.7, response_format: { type: "json_object" }
       });
       const res = JSON.parse(chatCompletion.choices[0]?.message?.content);
       return res.reasons || ["🎯 Profile Match", "📍 Nearby", "✨ Recommended"];
@@ -72,7 +72,7 @@ class LlmService {
     try {
       const chatCompletion = await groq.chat.completions.create({
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-        model: "llama3-8b-8192", max_tokens: 50, temperature: 0.7,
+        model: "llama-3.1-8b-instant", max_tokens: 50, temperature: 0.7,
       });
       return { message: chatCompletion.choices[0]?.message?.content || "Should we try something different today?" };
     } catch(e) { 
@@ -88,7 +88,7 @@ class LlmService {
     try {
       const chatCompletion = await groq.chat.completions.create({
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-        model: "llama3-8b-8192", max_tokens: 100, temperature: 0.7, response_format: { type: "json_object" }
+        model: "llama-3.1-8b-instant", max_tokens: 100, temperature: 0.7, response_format: { type: "json_object" }
       });
       const res = JSON.parse(chatCompletion.choices[0]?.message?.content);
       return {

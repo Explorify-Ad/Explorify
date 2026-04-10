@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import axios from 'axios';
 
 // Use 10.0.2.2 for Android emulator to reach localhost on host machine
-const DEFAULT_URL = Platform.OS === 'android' ? 'http://10.6.43.6:3000/api' : 'http://10.6.43.6:3000/api';
+const DEFAULT_URL = Platform.OS === 'android' ? 'http://10.6.53.151:3000/api' : 'http://localhost:3000/api';
 const API_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_URL;
 
 /**

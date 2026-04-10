@@ -27,6 +27,7 @@ import {
   Settings,
   Eye,
   Sparkles,
+  MessageCircle,
 } from 'lucide-react-native';
 import useStore from '../store/useStore';
 import useWeather from '../hooks/useWeather';

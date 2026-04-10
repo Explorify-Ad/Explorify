@@ -7,19 +7,32 @@ require('dotenv').config();
  */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 20,
+  ssl: { rejectUnauthorized: false }, 
+  max: 10, // Reduced from 20 to avoid hitting Supabase free tier limits
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 15000, // Increased to 15s
+});
+
+// Test connection on startup
+pool.query('SELECT NOW()', (err, res) => {
+  if (err) {
+    console.error('Database Connection Error on Startup:', err.message);
+  } else {
+    console.log('Database Connection Verified at:', res.rows[0].now);
+  }
 });
 
 // Log connection events
-pool.on('connect', () => {
-  console.log('Connected to PostgreSQL database');
+pool.on('connect', (client) => {
+  console.log('New client connected to PostgreSQL pool');
+});
+
+pool.on('acquire', (client) => {
+  console.log('Client acquired from pool');
 });
 
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client:', err);
+  console.error('Unexpected error on idle client:', err.message);
 });
 
 /**

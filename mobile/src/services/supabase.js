@@ -264,6 +264,40 @@ export async function updateExpeditionStatus(expeditionId, status) {
   if (error) throw error;
 }
 
+// ─── Communities ──────────────────────────────────────────────────────────────
+
+export async function fetchCommunities(userId = null) {
+  const { data: communities, error: ce } = await supabase
+    .from('communities')
+    .select('*')
+    .order('name');
+  if (ce) throw ce;
+
+  if (userId) {
+    const { data: memberships, error: me } = await supabase
+      .from('community_members')
+      .select('community_id')
+      .eq('user_id', userId);
+    if (me) throw me;
+
+    const memberSet = new Set((memberships || []).map(m => m.community_id));
+    return communities.map(c => ({
+      ...c,
+      is_member: memberSet.has(c.id)
+    }));
+  }
+
+  return communities;
+}
+
+export async function joinCommunity(communityId, userId) {
+  const { error } = await supabase
+    .from('community_members')
+    .upsert({ community_id: communityId, user_id: userId },
+             { onConflict: 'community_id,user_id', ignoreDuplicates: true });
+  if (error) throw error;
+}
+
 /** All expeditions the user has joined (active + ended), newest first. */
 export async function fetchMyExpeditions(userId) {
   const { data: memberships, error: me } = await supabase

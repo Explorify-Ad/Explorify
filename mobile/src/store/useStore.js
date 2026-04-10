@@ -101,9 +101,10 @@ const useStore = create((set, get) => ({
 
   fetchCommunities: async () => {
     try {
-      const api = (await import('../services/api')).default;
-      const response = await api.get('/communities');
-      set({ communities: response.data.data });
+      const { fetchCommunities } = await import('../services/supabase');
+      const { authUser } = get();
+      const data = await fetchCommunities(authUser?.id);
+      set({ communities: data });
     } catch (err) {
       console.warn('fetchCommunities error:', err);
     }
@@ -131,12 +132,16 @@ const useStore = create((set, get) => ({
 
   joinCommunity: async (communityId) => {
     try {
-      const api = (await import('../services/api')).default;
-      await api.post('/communities/join', { community_id: communityId });
+      const { joinCommunity } = await import('../services/supabase');
+      const { authUser } = get();
+      if (!authUser?.id) throw new Error('Auth required');
+      
+      await joinCommunity(communityId, authUser.id);
       await get().fetchCommunities();
       await get().fetchQuests();
     } catch (err) {
       console.warn('joinCommunity error:', err);
+      throw err;
     }
   },
 
