@@ -14,6 +14,7 @@ export const QUESTS = [
   { id: 'q_art',     title: 'Art Discovery',      category: 'Art',          emoji: '🎨', baseXp: 500, difficulty: 2, bg: '#ec4899' },
   { id: 'q_nature',  title: 'Into the Wild',      category: 'Nature',       emoji: '🌿', baseXp: 450, difficulty: 2, bg: '#22c55e' },
   { id: 'q_night',   title: 'After Dark',         category: 'Nightlife',    emoji: '🌃', baseXp: 700, difficulty: 3, bg: '#7c3aed' },
+  { id: 'q_viking',  title: 'The Viking Trail',   category: 'History',      emoji: '🛡️', baseXp: 900, difficulty: 4, bg: '#0f172a', isNarrative: true },
 ];
 
 const EXPLORER_TYPES = {
@@ -79,7 +80,9 @@ const useStore = create((set, get) => ({
   userBadges: [],         
   completedQuests: [],    
   questBonusXP: 0,        
-  dailyClaimed: {},       
+  dailyClaimed: {},
+  dailyChallenge: null,
+  refinementMessage: null,       
   hydrated: false,
   authUser: null,          
   isAuthenticated: false,
@@ -158,7 +161,7 @@ const useStore = create((set, get) => ({
     setAuthToken(null);
   },
 
-  completeOnboarding: async (interests, userName = 'Explorer', visitorType = 'tourist') => {
+  completeOnboarding: async (interests, userName = 'Explorer', visitorType = 'tourist', onboardingPrefs = {}) => {
     const catMap = {
       architecture: 'q_arch', food: 'q_food', history: 'q_history',
       art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
@@ -169,24 +172,30 @@ const useStore = create((set, get) => ({
       interests, 
       userName, 
       activeQuestId: defaultQuest,
-      preferences: { ...get().preferences, visitor_type: visitorType }
+      preferences: { ...get().preferences, visitor_type: visitorType, ...onboardingPrefs }
     });
     await get()._persist();
     const { authUser } = get();
     if (authUser?.id) {
       const { saveUserProfile } = await import('../services/supabase');
-      await saveUserProfile(authUser.id, { displayName: userName, interests, visitorType });
+      await saveUserProfile(authUser.id, { displayName: userName, interests, visitorType, preferences: onboardingPrefs });
     }
   },
 
   checkIn: async (landmark, feedback = {}) => {
     try {
       const api = (await import('../services/api')).default;
+      const { preferences } = get();
       const response = await api.post('/collections', {
         landmark_id: landmark.id,
         dwell_time_min: feedback.dwellTime || 0,
         rating: feedback.rating || 0,
         notes: feedback.notes || '',
+        context: {
+          weather: preferences.weather || 'unknown',
+          group_context: preferences.group_context || 'solo',
+          pace: preferences.walking_speed_kmh
+        }
       });
 
       const { data, outcomes } = response.data;
@@ -274,13 +283,29 @@ const useStore = create((set, get) => ({
     await get()._persist();
   },
 
+  fetchDailyChallenge: async () => {
+    try {
+      const api = (await import('../services/api')).default;
+      const { preferences, interests } = get();
+      const response = await api.post('/profile/daily-challenge', { preferences: { interests, ...preferences }, weather: null, timeOfDay: 'day' });
+      set({ dailyChallenge: { ...response.data, progress: get().getStreak() > 0 ? 1 : 0, achieved: false, claimed: !!get().dailyClaimed[new Date().toDateString()] } });
+    } catch (e) { console.error('fetchDailyChallenge error', e); }
+  },
+
+  fetchRefinement: async () => {
+    try {
+      const api = (await import('../services/api')).default;
+      const { authUser, collection } = get();
+      if(!authUser) return;
+      const recent = collection.slice(-5);
+      const response = await api.post('/profile/refinement', { user_id: authUser.id, recentVisits: recent });
+      set({ refinementMessage: response.data.message });
+    } catch(e) { }
+  },
+
   getDailyChallenge: () => {
-    const { dailyClaimed } = get();
-    const today = new Date().toDateString();
-    return {
-      target: 3, progress: get().getStreak() > 0 ? 1 : 0, 
-      category: 'Nature', emoji: '🌿', xpBonus: 100, 
-      achieved: false, claimed: !!dailyClaimed[today]
+    return get().dailyChallenge || {
+      target: 3, progress: 0, category: 'Exploring', emoji: '🌍', xpBonus: 100, title: 'Loading...', description: 'Loading your daily challenge...', achieved: false, claimed: false
     };
   },
 
@@ -382,6 +407,21 @@ const useStore = create((set, get) => ({
         fetchCollections(authUser.id),
         fetchUserProfile(authUser.id),
       ]);
+
+      // Phase 5.2 Returning User Detection
+      const lastActive = profile?.last_active_at ? new Date(profile.last_active_at) : new Date();
+      const daysSince = (new Date() - lastActive) / (1000 * 60 * 60 * 24);
+      if (daysSince > 14 || !profile?.last_active_at) {
+        // Trigger drift check since it has been 14+ days or first sync
+        const api = (await import('../services/api')).default;
+        api.post('/profile/drift-check', { user_id: authUser.id })
+          .then(res => {
+            if (res.data.drifted) {
+              set({ driftAlert: { from: res.data.from, to: res.data.to, score: res.data.score } });
+            }
+          })
+          .catch(() => {});
+      }
       const updates = {};
       if (serverCollection?.length) updates.collection = serverCollection;
       if (profile) {
@@ -395,6 +435,8 @@ const useStore = create((set, get) => ({
       if (Object.keys(updates).length) {
         set(updates);
         await get()._persist();
+        get().fetchDailyChallenge();
+        get().fetchRefinement();
       }
     } catch (e) {
       console.warn('syncFromSupabase error:', e.message);
