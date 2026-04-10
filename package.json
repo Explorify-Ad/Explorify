@@ -12,5 +12,10 @@
     "backend": "npm run dev --workspace=backend",
     "install:all": "npm install",
     "setup": "chmod +x scripts/setup-dev.sh && ./scripts/setup-dev.sh"
+  },
+  "dependencies": {
+    "react-dom": "19.1.0",
+    "react-native-web": "^0.21.0",
+    "react-refresh": "^0.18.0"
   }
 }

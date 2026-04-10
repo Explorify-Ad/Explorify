@@ -72,7 +72,8 @@ export default function LoginScreen() {
 
           {/* Card */}
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Welcome back</Text>
+            <Text style={styles
+              .cardTitle}>Welcome back</Text>
 
             <View style={styles.field}>
               <Text style={styles.label}>Email</Text>

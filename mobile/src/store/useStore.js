@@ -60,9 +60,6 @@ function getQuestXP(quest, target) {
 }
 
 const useStore = create((set, get) => ({
-  // ─── State ────────────────────────────────────────────────────────────────
-  hasOnboarded: false,
-  userName: 'Explorer',
   interests: [],          
   collection: [],         
   activeQuestId: null,    
@@ -83,6 +80,8 @@ const useStore = create((set, get) => ({
   dailyClaimed: {},
   dailyChallenge: null,
   refinementMessage: null,       
+  walkPaceSamples: [],     // last 10 samples
+  lastCheckIn: null,       // for walk segment calculation
   hydrated: false,
   authUser: null,          
   isAuthenticated: false,
@@ -190,7 +189,29 @@ const useStore = create((set, get) => ({
   checkIn: async (landmark, feedback = {}) => {
     try {
       const api = (await import('../services/api')).default;
-      const { preferences } = get();
+      const { preferences, collection, lastCheckIn } = get();
+
+      // Prevent duplicate check-ins
+      if (collection.find((c) => String(c.id) === String(landmark.id))) return { xp: 0 };
+
+      // Record a walking pace sample if we have a recent previous check-in
+      const now = Date.now();
+      if (lastCheckIn) {
+        const elapsedSec = (now - lastCheckIn.timestamp) / 1000;
+        const elapsedMin = elapsedSec / 60;
+        if (elapsedMin >= 2 && elapsedMin <= 90) {
+          const { haversineDistance } = require('../services/tomtom');
+          const distM = haversineDistance(
+            lastCheckIn.lat, lastCheckIn.lon,
+            landmark.lat ?? landmark.latitude,
+            landmark.lon ?? landmark.longitude,
+          );
+          if (distM >= 50 && distM <= 5000) {
+            get().recordWalkSegment(distM, elapsedSec);
+          }
+        }
+      }
+
       const response = await api.post('/collections', {
         landmark_id: landmark.id,
         dwell_time_min: feedback.dwellTime || 0,
@@ -214,7 +235,12 @@ const useStore = create((set, get) => ({
       };
 
       set((state) => ({
-        collection: [...state.collection, entry]
+        collection: [...state.collection, entry],
+        lastCheckIn: {
+          lat: landmark.lat ?? landmark.latitude,
+          lon: landmark.lon ?? landmark.longitude,
+          timestamp: now,
+        },
       }));
 
       if (outcomes && outcomes.length > 0) {
@@ -232,6 +258,21 @@ const useStore = create((set, get) => ({
       await get()._persist();
       return { xp, error: err.message };
     }
+  },
+    }
+  },
+
+  recordWalkSegment: async (distanceM, durationSec) => {
+    const paceKmh = (distanceM / 1000) / (durationSec / 3600);
+    // Sanity check: only accept realistic walking speeds (1–10 km/h)
+    if (paceKmh < 1 || paceKmh > 10) return;
+    set((state) => ({
+      walkPaceSamples: [
+        ...state.walkPaceSamples.slice(-9),
+        { distanceM, durationSec, paceKmh, timestamp: Date.now() },
+      ],
+    }));
+    await get()._persist();
   },
 
   setActiveQuest: async (questId) => {
@@ -322,12 +363,171 @@ const useStore = create((set, get) => ({
     }));
   },
 
+  /** Returns learned walk pace in km/h. Falls back to 4.5 until 2+ samples exist. */
+  getWalkPaceKmh: () => {
+    const { walkPaceSamples } = get();
+    if (walkPaceSamples.length < 2) return 4.5;
+    const avg = walkPaceSamples.reduce((s, p) => s + p.paceKmh, 0) / walkPaceSamples.length;
+    return Math.max(1.5, Math.min(8, avg)); // clamp to realistic range
+  },
   getTotalXP: () =>
     get().collection.reduce((s, c) => s + (c.xpEarned || 150), 0) + get().questBonusXP,
   getLevel: () => computeLevel(get().getTotalXP()),
   getCurrentXP: () => get().getTotalXP() % XP_PER_LEVEL,
   getStreak: () => computeStreak(get().collection),
 
+<<<<<<< HEAD
+=======
+  getActiveQuest: () => {
+    const { activeQuestId, collection, interests, completedQuests } = get();
+    const catMap = {
+      architecture: 'q_arch', food: 'q_food', history: 'q_history',
+      art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
+    };
+    const preferredId = activeQuestId ?? catMap[interests[0]] ?? 'q_arch';
+    const quest =
+      QUESTS.find((q) => q.id === preferredId && !completedQuests.includes(q.id)) ||
+      QUESTS.find((q) => !completedQuests.includes(q.id)) ||
+      QUESTS[0];
+
+    // Adaptive target scales with level
+    const level = computeLevel(get().getTotalXP());
+    const target = getQuestTarget(level);
+    const xp = getQuestXP(quest, target);
+    const progress = collection.filter((c) => c.category === quest.category).length;
+    return { ...quest, target, xp, progress: Math.min(progress, target) };
+  },
+
+  getSuggestedQuests: () => {
+    const { activeQuestId, interests, collection, completedQuests, visitorType } = get();
+    const catMap = {
+      architecture: 'q_arch', food: 'q_food', history: 'q_history',
+      art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
+    };
+
+    // Count visits per category for novelty sorting
+    const counts = {};
+    collection.forEach((c) => { counts[c.category] = (counts[c.category] || 0) + 1; });
+
+    const sorted = [...QUESTS].sort((a, b) => {
+      if (visitorType === 'local') {
+        // Locals: prefer least-explored categories (novelty-first)
+        const aCnt = counts[a.category] || 0;
+        const bCnt = counts[b.category] || 0;
+        return aCnt - bCnt;
+      }
+      // Tourists: prefer stated interests
+      const preferred = interests.map((i) => catMap[i]).filter(Boolean);
+      const aP = preferred.indexOf(a.id);
+      const bP = preferred.indexOf(b.id);
+      return (aP === -1 ? 99 : aP) - (bP === -1 ? 99 : bP);
+    });
+
+    const level = computeLevel(get().getTotalXP());
+    const target = getQuestTarget(level);
+
+    return sorted
+      .filter((q) => q.id !== activeQuestId && !completedQuests.includes(q.id))
+      .slice(0, 3)
+      .map((q) => ({
+        ...q,
+        target,
+        xp: getQuestXP(q, target),
+        progress: collection.filter((c) => c.category === q.category).length,
+      }));
+  },
+
+  /**
+   * Returns today's daily challenge, seeded by date + interests.
+   * Resets automatically at midnight.
+   */
+  getDailyChallenge: () => {
+    const { interests, collection, visitorType, dailyClaimed } = get();
+    const catMap = {
+      architecture: 'Architecture', food: 'Food', history: 'History',
+      art: 'Art', nature: 'Nature', nightlife: 'Nightlife',
+    };
+    const cats = interests.map((i) => catMap[i]).filter(Boolean);
+    if (!cats.length) return null;
+
+    // Deterministic day-seeded category pick (same for all with same interests on same day)
+    const dayNum = Math.floor(Date.now() / 86400000);
+    const category = cats[dayNum % cats.length];
+    // Locals get 2-stop challenge every other day, tourists always get 1
+    const target = visitorType === 'local' && dayNum % 2 === 0 ? 2 : 1;
+
+    // Count check-ins made today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const progress = collection.filter(
+      (c) => c.category === category && new Date(c.checkedInAt) >= today
+    ).length;
+
+    const todayStr = new Date().toDateString();
+    const claimed = !!dailyClaimed[todayStr];
+    const achieved = progress >= target;
+
+    return {
+      category,
+      emoji: DAILY_CATEGORY_EMOJIS[category] || '📍',
+      target,
+      progress: Math.min(progress, target),
+      xpBonus: target * 75,
+      achieved,
+      claimed,
+    };
+  },
+
+  /**
+   * Returns categories sorted by affinity score (0–100).
+   * Recent check-ins are weighted more heavily (exponential decay over 90 days).
+   */
+  getCategoryAffinities: () => {
+    const { collection } = get();
+    if (!collection.length) return [];
+    const now = Date.now();
+    const weights = {};
+    collection.forEach((c) => {
+      if (!c.category) return;
+      const daysAgo = (now - new Date(c.checkedInAt).getTime()) / 86400000;
+      const weight = Math.exp(-daysAgo / 45); // half-life ≈ 45 days
+      weights[c.category] = (weights[c.category] || 0) + weight;
+    });
+    const maxW = Math.max(...Object.values(weights), 1);
+    return Object.entries(weights)
+      .sort((a, b) => b[1] - a[1])
+      .map(([category, w]) => ({ category, affinity: Math.round((w / maxW) * 100) }));
+  },
+
+  /**
+   * Returns which tiers are unlocked based on the user's current XP level.
+   * public: always; discovered: Level 2+; hidden: Level 6+.
+   * Thresholds:  Level 1 = 0–499 XP, Level 6 = 2,500–2,999 XP.
+   * This means Sophie (0 XP) = public only; Alice (~2,180 XP) = discovered;
+   * Marco (~2,720 XP) = all tiers; Dev (5,000 XP) = all tiers.
+   */
+  getUnlockedTiers: () => {
+    const level = computeLevel(get().getTotalXP());
+    return { public: true, discovered: level >= 2, hidden: level >= 6 };
+  },
+
+  getExplorerType: () => {
+    const { collection, interests } = get();
+    if (!collection.length) {
+      const catMap = {
+        architecture: 'Architecture', food: 'Food', history: 'History',
+        art: 'Art', nature: 'Nature', nightlife: 'Nightlife',
+      };
+      const cat = catMap[interests[0]];
+      return EXPLORER_TYPES[cat] || { type: 'Newcomer', desc: 'Just getting started.' };
+    }
+    const counts = {};
+    collection.forEach((c) => { counts[c.category] = (counts[c.category] || 0) + 1; });
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    return EXPLORER_TYPES[top?.[0]] || { type: 'Urban Explorer', desc: 'No corner goes unchecked.' };
+  },
+
+>>>>>>> 9c0402ae7bfc81f796e74f609929123b63ac0db5
   getDNAStats: () => {
     const { collection } = get();
     const categories = ['Architecture', 'Food', 'History', 'Art', 'Nature', 'Hidden', 'Nightlife', 'Culture'];
@@ -375,6 +575,7 @@ const useStore = create((set, get) => ({
       activeQuestId, preferences, quests, 
       communities, userBadges, completedQuests, 
       questBonusXP, dailyClaimed,
+      walkPaceSamples, lastCheckIn,
     } = get();
     try {
       await AsyncStorage.setItem(
@@ -384,7 +585,8 @@ const useStore = create((set, get) => ({
           activeQuestId, preferences, quests, 
           communities, userBadges, completedQuests, 
           questBonusXP, dailyClaimed,
-        })
+          walkPaceSamples, lastCheckIn,
+        }),
       );
     } catch {}
   },

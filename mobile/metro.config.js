@@ -15,4 +15,8 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
+// Prevent Metro from resolving ESM builds (which use import.meta) of packages
+// like @supabase/supabase-js. Use the CommonJS fallback instead.
+config.resolver.unstable_enablePackageExports = false;
+
 module.exports = config;

@@ -236,7 +236,24 @@ export async function fetchExpeditionMembers(expeditionId) {
   return data;
 }
 
-export async function fetchActiveExpeditions(userLat, userLon, radiusMeters = 2000) {
+/**
+ * Auto-end any active expedition that was created more than 24 hours ago.
+ * Called silently on each fetchActiveExpeditions load.
+ */
+export async function autoExpireExpeditions() {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { error } = await supabase
+    .from('expeditions')
+    .update({ status: 'ended' })
+    .eq('status', 'active')
+    .lt('created_at', cutoff);
+  if (error) console.warn('autoExpireExpeditions error:', error.message);
+}
+
+export async function fetchActiveExpeditions(userLat, userLon, radiusMeters = 10000) {
+  // Silently expire stale expeditions before fetching
+  autoExpireExpeditions().catch(() => {});
+
   const { haversineDistance } = require('./tomtom');
   const { data, error } = await supabase
     .from('expeditions')

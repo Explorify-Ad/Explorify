@@ -7,8 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
-
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TopHUD } from '../components/explorify/TopHUD';
 import TomTomMap from '../components/explorify/TomTomMap';
@@ -18,7 +17,7 @@ import { fetchActiveExpeditions } from '../services/supabase';
 import api from '../services/api';
 import useStore from '../store/useStore';
 import useBattery from '../hooks/useBattery';
-
+import { buildPreferences } from '../utils/recommendations';
 
 export default function MapScreen() {
   const navigation = useNavigation();
@@ -28,7 +27,10 @@ export default function MapScreen() {
   const { theme, setMode } = useTheme();
 
   const getActiveQuest = useStore((s) => s.getActiveQuest);
-  const authUser = useStore((s) => s.authUser);
+  const authUser    = useStore((s) => s.authUser);
+  const interests   = useStore((s) => s.interests);
+  const visitorType = useStore((s) => s.visitorType);
+  const collection  = useStore((s) => s.collection);
   const activeQuest = getActiveQuest();
   const { tier: batteryTier, batteryLevel, isCharging } = useBattery();
 
@@ -67,20 +69,45 @@ export default function MapScreen() {
         api.get('/landmarks/context', { params: { lat: loc.latitude, lng: loc.longitude } }).catch(() => ({ data: { data: null } }))
       ]);
       setLandmarks(results || []);
-      setExpeditions(exps || []);
+
+      // Read store state at call time (Refactor branch improvement)
+      const { interests: ints, preferences: prefs, collection: col } = useStore.getState();
+      const visitorType = prefs.visitor_type || 'tourist';
+      const userPreferences = buildPreferences({ interests: ints, visitorType, collection: col });
+      const userCats = new Set(userPreferences.preferred_categories);
+      const categoryCounts = userPreferences.category_counts || {};
+
+      const withMatch = (exps || []).map((exp) => {
+        const expCats = exp.categories || [];
+        if (!expCats.length) return { ...exp, dnaMatch: 50 };
+        
+        let score = 0;
+        expCats.forEach((cat) => {
+          if (userCats.has(cat)) score += 40;
+          if ((categoryCounts[cat] || 0) >= 3) score += 20;
+          else if ((categoryCounts[cat] || 0) >= 1) score += 8;
+        });
+        const raw = Math.round(score / expCats.length);
+        return { ...exp, dnaMatch: Math.max(28, Math.min(97, raw + 30)) };
+      });
+      
+      setExpeditions(withMatch);
       if (ctxResponse.data.data) setContext(ctxResponse.data.data);
     } catch (e) {
-
-
       console.warn('MapScreen data load error:', e?.message || e);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    loadNearby();
+  // Re-fetch whenever the screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadNearby();
+    }, [loadNearby]),
+  );
 
+  useEffect(() => {
     Animated.parallel([
       Animated.timing(questY, {
         toValue: 0,
@@ -95,7 +122,7 @@ export default function MapScreen() {
         useNativeDriver: true,
       }),
     ]).start();
-  }, [loadNearby, questOpacity, questY]);
+  }, [questOpacity, questY]);
 
   const openSheet = () => {
     setShowSheet(true);
@@ -140,11 +167,6 @@ export default function MapScreen() {
     const exp = expeditions.find((e) => String(e.id) === String(expeditionId));
     if (!exp) return;
 
-    // Adaptive logic: DNA Match based on user interests
-    const userInterests = authUser?.interests || [];
-    const matchCount = (exp.categories || []).filter(c => userInterests.includes(c)).length;
-    const dnaMatch = exp.categories?.length > 0 ? Math.round((matchCount / exp.categories.length) * 100) : 100;
-
     navigation.navigate('ExpeditionPreview', {
       expedition: {
         id: exp.id,
@@ -154,8 +176,7 @@ export default function MapScreen() {
         created_by: exp.created_by,
         memberCount: exp.members?.length || 0,
         categories: exp.categories || [],
-        // Pass both display initials AND raw member objects for membership check
-        dnaMatch: dnaMatch || 85,
+        dnaMatch: exp.dnaMatch || 85,
         members: (exp.members || []).map((m) => m.user_name?.[0] || '?'),
         memberIds: (exp.members || []).map((m) => m.user_id),
         spotsLeft: Math.max(0, (exp.group_size || 4) - (exp.members?.length || 0)),

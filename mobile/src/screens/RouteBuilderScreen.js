@@ -57,6 +57,10 @@ const COMPANY_TYPES = [
   { id: 'elderly', label: 'Elderly', icon: '🧓' },
 ];
 
+function walkMinutes(distanceMeters, walkSpeedKmh) {
+  return Math.round((distanceMeters / 1000 / walkSpeedKmh) * 60);
+}
+
 // ─── Weather banner ───────────────────────────────────────────────────────────
 
 function WeatherBanner({ weather }) {
@@ -218,10 +222,12 @@ export default function RouteBuilderScreen({ route: navigationRoute, navigation 
   const { tier: batteryTier, getAdjustedBudget, batteryLevel } = useBattery();
   const { weather } = useWeather(location?.latitude, location?.longitude);
 
-  const preferences = useStore((s) => s.preferences);
-  const interests = useStore((s) => s.interests);
-  const setPreferences = useStore((s) => s.setPreferences);
-  const authUser = useStore((s) => s.authUser);
+  const preferences      = useStore((s) => s.preferences);
+  const interests        = useStore((s) => s.interests);
+  const setPreferences   = useStore((s) => s.setPreferences);
+  const authUser         = useStore((s) => s.authUser);
+  const getWalkPaceKmh   = useStore((s) => s.getWalkPaceKmh);
+  const walkPaceSamples  = useStore((s) => s.walkPaceSamples);
 
   const [timeBudget, setTimeBudget] = useState(60);
   const [selectedCats, setSelectedCats] = useState(CATEGORIES);
@@ -271,10 +277,11 @@ export default function RouteBuilderScreen({ route: navigationRoute, navigation 
         preferences: {
           ...preferences,
           categories: selectedCats,
-          interests: interests, // Pass onboarding interests for cold start
+          interests: interests, 
           battery_level: Math.round((batteryLevel ?? 1) * 100),
           current_hour: new Date().getHours(),
-          group_context: companyType, // adaptive expedition logic
+          group_context: companyType,
+          walking_speed_kmh: getWalkPaceKmh(), // Pass learned pace to backend!
         }
       });
 
@@ -337,6 +344,14 @@ export default function RouteBuilderScreen({ route: navigationRoute, navigation 
         showsVerticalScrollIndicator={false}
       >
         <WeatherBanner weather={weather} />
+        {walkPaceSamples.length >= 2 && (
+          <View style={[styles.banner, { backgroundColor: '#F0FDF4' }]}>
+            <Route size={14} color="#166534" strokeWidth={2} />
+            <Text style={[styles.bannerText, { color: '#166534' }]}>
+              Using your pace · {getWalkPaceKmh().toFixed(1)} km/h ({walkPaceSamples.length} trips recorded)
+            </Text>
+          </View>
+        )}
         <BatteryBanner
           tier={batteryTier}
           originalBudget={timeBudget}
