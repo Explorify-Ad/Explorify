@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS users (
   }'::jsonb,
   accessibility_needs INT DEFAULT 0,
   total_points INT DEFAULT 0,
+  detail_level TEXT DEFAULT 'overview',
+  language_pref TEXT DEFAULT 'en',
+  onboarding_group_context TEXT DEFAULT 'solo',
+  drift_detected_at TIMESTAMP WITH TIME ZONE,
+  drift_from_category TEXT,
+  drift_to_category TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -90,7 +96,9 @@ CREATE TABLE IF NOT EXISTS collections (
   dwell_time_min INT DEFAULT 0,
   rating INT,
   notes TEXT,
+  context JSONB DEFAULT '{}'::jsonb,
   visited_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  checked_in_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(user_id, landmark_id)
 );
 
@@ -140,9 +148,9 @@ CREATE TABLE IF NOT EXISTS expeditions (
   landmark_lon DECIMAL(11, 8),
   categories TEXT[],
   group_size INTEGER DEFAULT 4,
-  company_type TEXT DEFAULT 'solo',
   duration TEXT DEFAULT '2hr',
   dna_only BOOLEAN DEFAULT true,
+  is_narrative BOOLEAN DEFAULT false,
   status TEXT DEFAULT 'active',
   
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -154,6 +162,25 @@ CREATE TABLE IF NOT EXISTS expedition_members (
   user_name TEXT,
   joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   PRIMARY KEY (expedition_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS quests (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL,
+  expedition_id UUID REFERENCES expeditions(id) ON DELETE CASCADE,
+  progress_count INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'active', -- active, completed, claimed
+  completed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(user_id, expedition_id)
+);
+
+CREATE TABLE IF NOT EXISTS expedition_landmarks (
+  expedition_id UUID REFERENCES expeditions(id) ON DELETE CASCADE,
+  landmark_id UUID REFERENCES landmarks(id) ON DELETE CASCADE,
+  step_number INTEGER NOT NULL,
+  story_fragment TEXT,
+  PRIMARY KEY (expedition_id, step_number)
 );
 
 -- ─── Messages ─────────────────────────────────────────────────────────────────
@@ -230,6 +257,20 @@ INSERT INTO landmarks (name, latitude, longitude, category, points, tier, is_ind
 -- Expeditions
 INSERT INTO expeditions (title, description, category, difficulty, reward_xp, required_count) VALUES 
 ('Architecture Walk', 'Find 3 key architectural spots', 'architecture', 3, 600, 3),
-('Street Food Safari', 'Find 4 culinary spots', 'shopping', 1, 400, 4),
 ('Through the Ages', 'Find 5 historical landmarks', 'historical', 2, 550, 5)
+ON CONFLICT DO NOTHING;
+
+-- Seed Narrative Quest (The Viking Trail)
+INSERT INTO expeditions (id, title, description, category, difficulty, reward_xp, required_count, is_narrative) VALUES 
+('e2000000-0000-0000-0000-000000000001', 'The Viking Trail', 'A sequential journey through Dublins Viking history', 'historical', 4, 900, 3, true)
+ON CONFLICT DO NOTHING;
+
+-- Map landmarks to The Viking Trail
+-- 1. Christ Church Cathedral
+-- 2. Guinness Storehouse (part of the narrative loop for this test)
+-- 3. Dublin Castle (assuming it exists or I'll use another)
+INSERT INTO expedition_landmarks (expedition_id, landmark_id, step_number, story_fragment) VALUES
+('e2000000-0000-0000-0000-000000000001', (SELECT id FROM landmarks WHERE name = 'Christ Church Cathedral' LIMIT 1), 1, 'The vikings founded this site in 1030. They built a wooden church here, long before the stone cathedral you see today.'),
+('e2000000-0000-0000-0000-000000000001', (SELECT id FROM landmarks WHERE name = 'Guinness Storehouse' LIMIT 1), 2, 'The water for the black stuff comes from the mountains where the Vikings once roamed.'),
+('e2000000-0000-0000-0000-000000000001', (SELECT id FROM landmarks WHERE name = 'Kilmainham Gaol' LIMIT 1), 3, 'Even the outlaws of the Viking age would have feared the cages of Dublin.')
 ON CONFLICT DO NOTHING;
