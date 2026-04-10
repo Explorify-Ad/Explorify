@@ -42,6 +42,7 @@ app.use('/api/communities', communityRoutes);
 app.use('/api/expeditions', expeditionRoutes);
 app.use('/api/quests', questRoutes);
 app.use('/api/groups', groupRoutes);
+app.use('/api/profile', require('./routes/profile'));
 
 // Error handling middleware
 app.use(errorHandler);
