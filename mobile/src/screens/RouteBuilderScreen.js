@@ -34,7 +34,8 @@ import useBattery from '../hooks/useBattery';
 import useWeather from '../hooks/useWeather';
 import useLocation from '../hooks/useLocation';
 import { getCurrentLocation } from '../services/location';
-import api from '../services/api';
+import { fetchAllLandmarks } from '../services/supabase';
+import { haversineDistance } from '../services/tomtom';
 import { CATEGORY_COLORS } from '../utils/theme';
 import { CATEGORY_ICONS } from '../components/explorify/PinDetailModal';
 
@@ -268,44 +269,83 @@ export default function RouteBuilderScreen({ route: navigationRoute, navigation 
 
     try {
       const { budget: adjusted } = getAdjustedBudget(timeBudget);
+      const walkSpeed = getWalkPaceKmh();
+      const unlockedTiers = useStore.getState().getUnlockedTiers();
+      const isRaining = weather?.isRaining || false;
 
-      const response = await api.post('/routes/generate', {
-        start_lat: coords.latitude,
-        start_lng: coords.longitude,
-        time_budget_min: adjusted,
-        group_id: group_id,
-        preferences: {
-          ...preferences,
-          categories: selectedCats,
-          interests: interests, 
-          battery_level: Math.round((batteryLevel ?? 1) * 100),
-          current_hour: new Date().getHours(),
-          group_context: companyType,
-          walking_speed_kmh: getWalkPaceKmh(), // Pass learned pace to backend!
+      // 1. Fetch all landmarks from Supabase
+      const allLandmarks = await fetchAllLandmarks(coords.latitude, coords.longitude);
+
+      // 2. Filter: category, tier access, weather (rainy → prefer indoor)
+      const filtered = allLandmarks.filter(lm => {
+        if (!unlockedTiers[lm.tier]) return false;
+        if (selectedCats.length > 0) {
+          const lmCat = (lm.category || '').toLowerCase();
+          if (!selectedCats.some(c => c.toLowerCase() === lmCat)) return false;
         }
+        if (isRaining && !lm.is_indoor && lm.tier === 'public') return false;
+        return true;
       });
 
-      const data = response.data.data;
-      const landmarks = data.landmarks || [];
-
-      if (!landmarks.length) {
+      if (!filtered.length) {
         Alert.alert('No Route Found', 'Try increasing your time budget or adding more categories.');
         setBuilding(false);
         return;
       }
 
-      setGeneratedRoute(landmarks);
-      setActiveAdaptations(data.active_adaptations || []);
-      setIsColdStart(data.cold_start || false);
+      // 3. Score each landmark: proximity + collection history
+      const { collection } = useStore.getState();
+      const visitedIds = new Set(collection.map(c => String(c.id)));
 
-      // Compute stats
-      let totalXP = 0;
-      landmarks.forEach(l => totalXP += (l.points || 10) * 15);
-      setRouteStats({
-        stops: landmarks.length,
-        totalMin: data.estimated_duration_min || adjusted,
-        totalXP
+      const scored = filtered.map(lm => {
+        const distM = haversineDistance(
+          coords.latitude, coords.longitude,
+          parseFloat(lm.latitude), parseFloat(lm.longitude)
+        );
+        const walkMin = walkMinutes(distM, walkSpeed);
+        const visitMin = lm.avg_visit_duration_min || 30;
+        const totalMin = walkMin + visitMin;
+
+        // Score: penalise distance, reward unvisited, reward indoor when raining
+        let score = 1000 - distM * 0.1;
+        if (!visitedIds.has(String(lm.id))) score += 200;
+        if (isRaining && lm.is_indoor) score += 150;
+        if (companyType === 'family' && lm.accessibility_level >= 4) score += 100;
+
+        return { ...lm, _distM: distM, _walkMin: walkMin, _visitMin: visitMin, _totalMin: totalMin, _score: score };
       });
+
+      // 4. Greedy pick: add highest-scoring landmark that fits remaining budget
+      scored.sort((a, b) => b._score - a._score);
+      const route = [];
+      let usedMin = 0;
+
+      for (const lm of scored) {
+        if (usedMin + lm._totalMin > adjusted + 10) continue; // 10 min grace
+        route.push(lm);
+        usedMin += lm._totalMin;
+        if (usedMin >= adjusted * 0.85) break; // stop when 85% full
+      }
+
+      if (!route.length) {
+        Alert.alert('No Route Found', 'Try increasing your time budget or adding more categories.');
+        setBuilding(false);
+        return;
+      }
+
+      // 5. Build adaptations list for the UI badges
+      const adaptations = [];
+      if (isRaining) adaptations.push('indoor_priority');
+      if (getAdjustedBudget(timeBudget).budget < timeBudget) adaptations.push('battery_cap');
+      if (companyType === 'family') adaptations.push('accessibility_boost');
+
+      setGeneratedRoute(route);
+      setActiveAdaptations(adaptations);
+      setIsColdStart(collection.length === 0);
+
+      let totalXP = 0;
+      route.forEach(l => totalXP += (l.points || 10) * 15);
+      setRouteStats({ stops: route.length, totalMin: usedMin, totalXP });
 
     } catch (err) {
       console.error(err);
