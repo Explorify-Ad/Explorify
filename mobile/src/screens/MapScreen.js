@@ -7,19 +7,22 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TopHUD } from '../components/explorify/TopHUD';
 import TomTomMap from '../components/explorify/TomTomMap';
 import { useTheme } from '../context/ThemeContext';
 import { getCurrentLocation } from '../services/location';
-import { fetchAllLandmarks, fetchActiveExpeditions } from '../services/supabase';
-import { buildPreferences } from '../utils/recommendations';
+import { fetchActiveExpeditions } from '../services/supabase';
+import api from '../services/api';
 import useStore from '../store/useStore';
 import useBattery from '../hooks/useBattery';
+import { buildPreferences } from '../utils/recommendations';
 
 export default function MapScreen() {
   const navigation = useNavigation();
+  const route = useRoute();
+
   const insets = useSafeAreaInsets();
   const { theme, setMode } = useTheme();
 
@@ -36,6 +39,8 @@ export default function MapScreen() {
   const [expeditions, setExpeditions] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [context, setContext] = useState(null);
+
 
   const mapRef = useRef(null);
 
@@ -57,32 +62,37 @@ export default function MapScreen() {
     }
     setUserLocation(loc);
     try {
-      const [results, exps] = await Promise.all([
-        fetchAllLandmarks(loc.latitude, loc.longitude),
+      const fetchRecommendations = useStore.getState().fetchRecommendations;
+      const [results, exps, ctxResponse] = await Promise.all([
+        fetchRecommendations(loc.latitude, loc.longitude),
         fetchActiveExpeditions(loc.latitude, loc.longitude),
+        api.get('/landmarks/context', { params: { lat: loc.latitude, lng: loc.longitude } }).catch(() => ({ data: { data: null } }))
       ]);
       setLandmarks(results || []);
 
-      // Read store state at call time so loadNearby needs no closure dependencies.
-      // This avoids recreating the callback on every collection/interests update,
-      // which would cause repeated WebView reloads and make expedition pins vanish.
-      const { interests: ints, visitorType: vt, collection: col } = useStore.getState();
-      const preferences = buildPreferences({ interests: ints, visitorType: vt, collection: col });
-      const userCats = new Set(preferences.preferred_categories);
+      // Read store state at call time (Refactor branch improvement)
+      const { interests: ints, preferences: prefs, collection: col } = useStore.getState();
+      const visitorType = prefs.visitor_type || 'tourist';
+      const userPreferences = buildPreferences({ interests: ints, visitorType, collection: col });
+      const userCats = new Set(userPreferences.preferred_categories);
+      const categoryCounts = userPreferences.category_counts || {};
+
       const withMatch = (exps || []).map((exp) => {
         const expCats = exp.categories || [];
         if (!expCats.length) return { ...exp, dnaMatch: 50 };
-        const catCounts = preferences.category_counts || {};
+        
         let score = 0;
         expCats.forEach((cat) => {
           if (userCats.has(cat)) score += 40;
-          if ((catCounts[cat] || 0) >= 3) score += 20;
-          else if ((catCounts[cat] || 0) >= 1) score += 8;
+          if ((categoryCounts[cat] || 0) >= 3) score += 20;
+          else if ((categoryCounts[cat] || 0) >= 1) score += 8;
         });
         const raw = Math.round(score / expCats.length);
         return { ...exp, dnaMatch: Math.max(28, Math.min(97, raw + 30)) };
       });
+      
       setExpeditions(withMatch);
+      if (ctxResponse.data.data) setContext(ctxResponse.data.data);
     } catch (e) {
       console.warn('MapScreen data load error:', e?.message || e);
     } finally {
@@ -90,8 +100,7 @@ export default function MapScreen() {
     }
   }, []);
 
-  // Re-fetch whenever the screen comes into focus (handles back-navigation after
-  // creating an expedition, joining/leaving, etc.)
+  // Re-fetch whenever the screen comes into focus
   useFocusEffect(
     useCallback(() => {
       loadNearby();
@@ -157,15 +166,17 @@ export default function MapScreen() {
   const goToExpedition = (expeditionId) => {
     const exp = expeditions.find((e) => String(e.id) === String(expeditionId));
     if (!exp) return;
+
     navigation.navigate('ExpeditionPreview', {
       expedition: {
         id: exp.id,
         title: exp.title,
+        description: exp.description || 'Join this exciting expedition!',
+        companyType: exp.company_type || 'friends',
         created_by: exp.created_by,
         memberCount: exp.members?.length || 0,
         categories: exp.categories || [],
-        dnaMatch: exp.dnaMatch ?? 60,
-        // Pass both display initials AND raw member objects for membership check
+        dnaMatch: exp.dnaMatch || 85,
         members: (exp.members || []).map((m) => m.user_name?.[0] || '?'),
         memberIds: (exp.members || []).map((m) => m.user_id),
         spotsLeft: Math.max(0, (exp.group_size || 4) - (exp.members?.length || 0)),
@@ -173,14 +184,39 @@ export default function MapScreen() {
         startsIn: 'Now',
         landmark: exp.landmark_name ? { name: exp.landmark_name } : null,
         leader: { name: exp.creator_name, type: 'Explorer', level: 1, avatar: exp.creator_name?.[0] || 'E' },
+        reasons: exp.categories?.slice(0, 2).map(c => `${c} Expert Match`) || ['Local Discovery']
       },
     });
   };
+
 
   // Expedition (if any) that the current user has joined
   const myExpedition = expeditions.find((e) =>
     e.members?.some((m) => m.user_id === authUser?.id),
   );
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    if (myExpedition && userLocation) {
+      const waypoints = [
+        { lat: userLocation.latitude, lon: userLocation.longitude },
+        { lat: myExpedition.landmark_lat, lon: myExpedition.landmark_lon }
+      ];
+      mapRef.current.drawRoute(waypoints);
+    } else if (route.params?.generatedRoute) {
+      const landmarks = route.params.generatedRoute;
+      const waypoints = [
+        ...(userLocation ? [{ lat: userLocation.latitude, lon: userLocation.longitude }] : []),
+        ...landmarks.map(l => ({ lat: parseFloat(l.latitude), lon: parseFloat(l.longitude) }))
+      ];
+      mapRef.current.drawRoute(waypoints);
+    } else {
+      mapRef.current.clearRoute();
+    }
+  }, [myExpedition, userLocation, route.params?.generatedRoute]);
+
+
 
   const progress = activeQuest?.progress ?? 0;
   const target = activeQuest?.target ?? 0;
@@ -191,6 +227,14 @@ export default function MapScreen() {
   const QUEST_BOTTOM = 10;
   const FAB_BOTTOM = QUEST_BOTTOM + 72;
 
+  // Narrative Quest Locking (Phase 7.3)
+  const isNarrative = activeQuest?.isNarrative;
+  const filteredLandmarks = isNarrative 
+    ? [landmarks[progress % landmarks.length]] // Only show the next one in sequence
+    : landmarks;
+
+  const refinedLandmarks = (filteredLandmarks || []).filter(Boolean);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.surface || '#fff' }]}>
       {userLocation ? (
@@ -198,7 +242,7 @@ export default function MapScreen() {
           ref={mapRef}
           lat={userLocation.latitude}
           lon={userLocation.longitude}
-          landmarks={landmarks}
+          landmarks={refinedLandmarks}
           expeditions={expeditions}
           primaryColor={theme.primary}
           style={StyleSheet.absoluteFill}
@@ -223,6 +267,35 @@ export default function MapScreen() {
       )}
 
       <TopHUD />
+
+      {context && (
+        <View style={[styles.contextHUD, { top: insets.top + 80 }]}>
+          <View style={styles.contextItem}>
+            <Text style={styles.contextEmoji}>
+              {context.weather?.isRaining ? '🌧️' : context.weather?.isClear ? '☀️' : '🌥️'}
+            </Text>
+            <View>
+              <Text style={styles.contextTitle}>{context.weather?.description || 'Loading...'}</Text>
+              <Text style={styles.contextSub}>
+                {context.weather?.isRaining ? 'Indoor venues boosted' : 'Scenic spots prioritized'}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.contextDivider} />
+          <View style={styles.contextItem}>
+            <Text style={styles.contextEmoji}>
+              {context.timeSlot === 'Morning' ? '🌅' : context.timeSlot === 'Evening' ? '🌇' : '🏙️'}
+            </Text>
+            <View>
+              <Text style={styles.contextTitle}>{context.timeSlot} Slot</Text>
+              <Text style={styles.contextSub}>
+                {context.timeSlot === 'Evening' ? 'Lighting & Vibes score+' : 'Activity match+'}
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
 
       {/* Battery warning banner — only shown when not charging and tier is low/critical */}
       {!isCharging && (batteryTier === 'low' || batteryTier === 'critical') && (
@@ -292,7 +365,7 @@ export default function MapScreen() {
         style={[
           styles.fab,
           {
-            bottom: FAB_BOTTOM,
+            bottom: FAB_BOTTOM + 80, // Moved up to leave space for Next Best
             left: 16,
             backgroundColor: '#FF6B6B',
           },
@@ -300,6 +373,26 @@ export default function MapScreen() {
       >
         <Text style={styles.fabEmoji}>＋</Text>
       </Pressable>
+
+      {/* Next Best Local Guidance */}
+      {refinedLandmarks.length > 0 && !showSheet && (
+        <View style={[styles.nextBestCard, { bottom: FAB_BOTTOM - 20 }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.nextBestLabel}>
+              {isNarrative ? 'Next Quest Step 🛡️' : 'Next Best 🚀'}
+            </Text>
+            <Text style={styles.nextBestTitle} numberOfLines={1}>{refinedLandmarks[0].name}</Text>
+            <Text style={styles.nextBestReason} numberOfLines={1}>
+              {isNarrative 
+                ? `Story progress: Step ${progress + 1}` 
+                : (refinedLandmarks[0].ai_reasons ? refinedLandmarks[0].ai_reasons[0] : (refinedLandmarks[0].reasons ? refinedLandmarks[0].reasons[0] : 'Matches your profile'))}
+            </Text>
+          </View>
+          <Pressable style={styles.nextBestGoBtn} onPress={() => goToLandmark(refinedLandmarks[0].id)}>
+            <Text style={{ color: 'white', fontWeight: '800', fontSize: 13 }}>Go</Text>
+          </Pressable>
+        </View>
+      )}
 
       {showSheet && (
         <>
@@ -577,4 +670,58 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
+  contextHUD: {
+    position: 'absolute',
+    left: 14, right: 14,
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 18,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+    zIndex: 10,
+  },
+  contextItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  contextEmoji: { fontSize: 20 },
+  contextTitle: { fontSize: 12, fontWeight: '700', color: '#374151' },
+  contextSub: { fontSize: 9, color: '#9CA3AF', marginTop: 1 },
+  contextDivider: {
+    width: 1, height: '70%',
+    backgroundColor: '#F3F4F6',
+    marginHorizontal: 10,
+    alignSelf: 'center',
+  },
+  nextBestCard: {
+    position: 'absolute',
+    left: 88, right: 88,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 20,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 6,
+    zIndex: 15,
+  },
+  nextBestLabel: { color: '#F59E0B', fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  nextBestTitle: { fontSize: 14, fontWeight: '700', color: '#1F2937', marginVertical: 2 },
+  nextBestReason: { fontSize: 11, color: '#6B7280' },
+  nextBestGoBtn: {
+    backgroundColor: '#3B82F6',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginLeft: 10,
+  }
 });

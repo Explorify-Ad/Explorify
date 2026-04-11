@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setAuthToken } from '../services/api';
 
 const STORAGE_KEY = '@explorify_v1';
 const XP_PER_LEVEL = 500;
@@ -13,6 +14,7 @@ export const QUESTS = [
   { id: 'q_art',     title: 'Art Discovery',      category: 'Art',          emoji: '🎨', baseXp: 500, difficulty: 2, bg: '#ec4899' },
   { id: 'q_nature',  title: 'Into the Wild',      category: 'Nature',       emoji: '🌿', baseXp: 450, difficulty: 2, bg: '#22c55e' },
   { id: 'q_night',   title: 'After Dark',         category: 'Nightlife',    emoji: '🌃', baseXp: 700, difficulty: 3, bg: '#7c3aed' },
+  { id: 'q_viking',  title: 'The Viking Trail',   category: 'History',      emoji: '🛡️', baseXp: 900, difficulty: 4, bg: '#0f172a', isNarrative: true },
 ];
 
 const EXPLORER_TYPES = {
@@ -49,92 +51,166 @@ function computeStreak(collection) {
   return streak;
 }
 
-/** Quest target scales with level: 3 at start, +1 every 3 levels, max 8 */
 function getQuestTarget(level) {
   return Math.min(3 + Math.floor(level / 3), 8);
 }
 
-/** Quest XP bonus scales with target */
 function getQuestXP(quest, target) {
   return Math.round(quest.baseXp * (target / 3));
 }
 
 const useStore = create((set, get) => ({
-  // ─── Persisted state ──────────────────────────────────────────────────────
-  hasOnboarded: false,
-  userName: 'Explorer',
-  interests: [],           // array of category ids from onboarding
-  visitorType: 'tourist',  // 'tourist' | 'local'
-  collection: [],          // checked-in landmarks with metadata
-  activeQuestId: null,     // id from QUESTS
-  completedQuests: [],     // quest ids whose XP has been claimed
-  questBonusXP: 0,         // cumulative XP earned from quest + daily completions
-  dailyClaimed: {},        // { 'Mon Apr 01 2026': true }
-  walkPaceSamples: [],     // [{ distanceM, durationSec, paceKmh, timestamp }] — last 10
-  lastCheckIn: null,       // { lat, lon, timestamp } — used to compute walk segments
+  interests: [],          
+  collection: [],         
+  activeQuestId: null,    
+  landmarks: [],          
+  preferences: {
+    walking_speed_kmh: 4.5,
+    category_dwell_multipliers: {},
+    visitor_type: 'tourist',
+    accessibility_min: 0,
+    group_context: 'solo',
+    abandonment_streak: 0,
+  },
+  quests: [],             
+  communities: [],        
+  userBadges: [],         
+  completedQuests: [],    
+  questBonusXP: 0,        
+  dailyClaimed: {},
+  dailyChallenge: null,
+  refinementMessage: null,       
+  walkPaceSamples: [],     // last 10 samples
+  lastCheckIn: null,       // for walk segment calculation
   hydrated: false,
-
-  // ─── Auth state (not persisted — Supabase session handles it) ─────────────
-  authUser: null,          // { id, email, name }
+  authUser: null,          
   isAuthenticated: false,
+  driftAlert: null,
+  refinementMessage: null,
 
   // ─── Actions ──────────────────────────────────────────────────────────────
 
-  setAuthUser: (user) => {
+  fetchQuests: async () => {
+    // Compute quest progress locally from the check-in collection
+    const { collection } = get();
+    const questsWithProgress = QUESTS.map((quest) => {
+      const progress_count = collection.filter(
+        (c) => c.category?.toLowerCase() === quest.category.toLowerCase()
+      ).length;
+      return { ...quest, progress_count, required_count: 3, quest_type: 'personal' };
+    });
+    set({ quests: questsWithProgress });
+  },
+
+  fetchCommunities: async () => {
+    try {
+      const { fetchCommunities } = await import('../services/supabase');
+      const { authUser } = get();
+      const data = await fetchCommunities(authUser?.id);
+      set({ communities: data });
+    } catch (err) {
+      console.warn('fetchCommunities error:', err);
+    }
+  },
+
+  fetchRecommendations: async () => {
+    // Landmark recommendations are handled by the Supabase service + MapScreen directly
+    return [];
+  },
+
+  joinCommunity: async (communityId) => {
+    try {
+      const { joinCommunity } = await import('../services/supabase');
+      const { authUser } = get();
+      if (!authUser?.id) throw new Error('Auth required');
+      
+      await joinCommunity(communityId, authUser.id);
+      await get().fetchCommunities();
+      await get().fetchQuests();
+    } catch (err) {
+      console.warn('joinCommunity error:', err);
+      throw err;
+    }
+  },
+
+  setPreferences: (prefs) => {
+    set({ preferences: { ...get().preferences, ...prefs } });
+    get()._persist();
+  },
+
+  setAuthUser: (user, token) => {
     set({
       authUser: user,
       isAuthenticated: !!user,
       userName: user?.name || get().userName,
     });
+    setAuthToken(token);
   },
 
   signOut: async () => {
     const supabase = (await import('../services/supabase')).default;
     await supabase.auth.signOut();
     set({ authUser: null, isAuthenticated: false });
+    setAuthToken(null);
   },
 
-  completeOnboarding: async (interests, userName = 'Explorer', visitorType = 'tourist') => {
+  completeOnboarding: async (interests, userName = 'Explorer', visitorType = 'tourist', onboardingPrefs = {}) => {
     const catMap = {
       architecture: 'q_arch', food: 'q_food', history: 'q_history',
       art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
     };
     const defaultQuest = catMap[interests[0]] || 'q_arch';
-    set({ hasOnboarded: true, interests, visitorType, userName, activeQuestId: defaultQuest });
+    set({ 
+      hasOnboarded: true, 
+      interests, 
+      userName, 
+      activeQuestId: defaultQuest,
+      preferences: { ...get().preferences, visitor_type: visitorType, ...onboardingPrefs }
+    });
     await get()._persist();
     const { authUser } = get();
     if (authUser?.id) {
       const { saveUserProfile } = await import('../services/supabase');
-      await saveUserProfile(authUser.id, { displayName: userName, interests, visitorType });
+      await saveUserProfile(authUser.id, { displayName: userName, interests, visitorType, preferences: onboardingPrefs });
     }
   },
 
-  checkIn: async (landmark) => {
-    const { collection, authUser, lastCheckIn } = get();
-    if (collection.find((c) => String(c.id) === String(landmark.id))) return 0;
+  checkIn: async (landmark, feedback = {}) => {
+    const { collection, lastCheckIn, preferences, authUser } = get();
 
-    // Record a walking pace sample if we have a recent previous check-in
+    // Prevent duplicate check-ins
+    if (collection.find((c) => String(c.id) === String(landmark.id))) return { xp: 0 };
+
     const now = Date.now();
+
+    // Record walking pace sample from segment between consecutive check-ins
     if (lastCheckIn) {
       const elapsedSec = (now - lastCheckIn.timestamp) / 1000;
       const elapsedMin = elapsedSec / 60;
-      // Only count walks between 2 and 90 minutes (filters out pauses and overnight gaps)
       if (elapsedMin >= 2 && elapsedMin <= 90) {
-        const { haversineDistance } = require('../services/tomtom');
-        const distM = haversineDistance(
-          lastCheckIn.lat, lastCheckIn.lon,
-          landmark.lat ?? landmark.latitude,
-          landmark.lon ?? landmark.longitude,
-        );
-        // Only count walks between 50 m and 5 km
-        if (distM >= 50 && distM <= 5000) {
-          get().recordWalkSegment(distM, elapsedSec);
-        }
+        try {
+          const { haversineDistance } = require('../services/tomtom');
+          const distM = haversineDistance(
+            lastCheckIn.lat, lastCheckIn.lon,
+            landmark.lat ?? landmark.latitude,
+            landmark.lon ?? landmark.longitude,
+          );
+          if (distM >= 50 && distM <= 5000) {
+            get().recordWalkSegment(distM, elapsedSec);
+          }
+        } catch (_) {}
       }
     }
 
     const xp = TIER_XP[landmark.tier] || 150;
-    const entry = { ...landmark, checkedInAt: new Date().toISOString(), xpEarned: xp };
+    const entry = {
+      ...landmark,
+      checkedInAt: new Date().toISOString(),
+      xpEarned: xp,
+      rating: feedback.rating,
+      notes: feedback.notes,
+    };
+
     set((state) => ({
       collection: [...state.collection, entry],
       lastCheckIn: {
@@ -143,12 +219,18 @@ const useStore = create((set, get) => ({
         timestamp: now,
       },
     }));
-    await get()._persist();
+
+    // Fire-and-forget save to Supabase (won't block or error the UI)
     if (authUser?.id) {
-      const { saveCheckIn } = await import('../services/supabase');
-      await saveCheckIn(authUser.id, landmark, xp);
+      import('../services/supabase').then(({ saveCheckIn }) => {
+        saveCheckIn(authUser.id, landmark, xp, feedback).catch(() => {});
+      });
     }
-    return xp;
+
+    // Update quest progress from the now-updated collection
+    await get().fetchQuests();
+    await get()._persist();
+    return { xp };
   },
 
   recordWalkSegment: async (distanceM, durationSec) => {
@@ -169,33 +251,118 @@ const useStore = create((set, get) => ({
     await get()._persist();
   },
 
+  // ─── Computed Getters ─────────────────────────────────────────────────────
+  
+  getFormattedQuests: () => {
+    const bgMap = { Architecture: '#64748b', Food: '#f97316', History: '#d97706', Art: '#ec4899', Nature: '#22c55e', Nightlife: '#7c3aed' };
+    const emojiMap = { Architecture: '🏛️', Food: '🍽️', History: '⚔️', Art: '🎨', Nature: '🌿', Nightlife: '🌃' };
+    const apiQuests = get().quests;
+    const items = apiQuests.length > 0 ? apiQuests : QUESTS; // Fallback to mock if API hasn't loaded
+    return items.map(q => ({
+      ...q,
+      xp: q.reward_xp || q.baseXp || 500,
+      target: q.required_count || 3,
+      progress: q.progress_count || 0,
+      emoji: q.emoji || emojiMap[q.category] || '🗺️',
+      bg: q.bg || bgMap[q.category] || '#64748b',
+    }));
+  },
+
+  getActiveQuest: () => {
+    const fq = get().getFormattedQuests();
+    const activeId = get().activeQuestId;
+    return fq.find(q => q.id === activeId) || fq[0] || { target: 1, progress: 0, title: 'No Quest', xp: 0 };
+  },
+
+  getSuggestedQuests: () => {
+    const fq = get().getFormattedQuests();
+    const active = get().activeQuestId;
+    const completed = get().completedQuests;
+    return fq.filter(q => q.id !== active && !completed.includes(q.id));
+  },
+
   completeQuest: async (questId) => {
-    const quest = QUESTS.find((q) => q.id === questId);
-    if (!quest) return;
     const level = computeLevel(get().getTotalXP());
-    const target = getQuestTarget(level);
-    const xp = getQuestXP(quest, target);
+    const questDef = QUESTS.find((q) => q.id === questId);
+    const xp = questDef ? getQuestXP(questDef, getQuestTarget(level)) : 500;
     set((state) => ({
-      completedQuests: [...state.completedQuests, questId],
       questBonusXP: state.questBonusXP + xp,
+      completedQuests: [...state.completedQuests, questId],
       activeQuestId: null,
     }));
     await get()._persist();
   },
 
-  /** Award the daily challenge XP bonus (call when user taps Claim). */
-  claimDailyChallenge: async () => {
+  fetchDailyChallenge: async () => {
+    const { interests, collection, dailyClaimed } = get();
     const today = new Date().toDateString();
-    const challenge = get().getDailyChallenge();
-    if (!challenge || !challenge.achieved || challenge.claimed) return;
-    set((state) => ({
-      dailyClaimed: { ...state.dailyClaimed, [today]: true },
-      questBonusXP: state.questBonusXP + challenge.xpBonus,
-    }));
-    await get()._persist();
+    const claimed = !!dailyClaimed[today];
+
+    const catMap = {
+      architecture: 'Architecture', food: 'Food', history: 'History',
+      art: 'Art', nature: 'Nature', nightlife: 'Nightlife',
+    };
+    const cats = interests.length > 0
+      ? interests.map((i) => catMap[i]).filter(Boolean)
+      : ['Architecture'];
+
+    // Deterministic category selection: rotate by day-of-year
+    const dayOfYear = Math.floor(
+      (new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000
+    );
+    const category = cats[dayOfYear % cats.length];
+    const emoji = DAILY_CATEGORY_EMOJIS[category] || '🌍';
+    const target = 2;
+    const progress = collection.filter(
+      (c) =>
+        c.category?.toLowerCase() === category.toLowerCase() &&
+        new Date(c.checkedInAt).toDateString() === today
+    ).length;
+
+    set({
+      dailyChallenge: {
+        category,
+        emoji,
+        target,
+        progress,
+        title: `Daily ${category} Challenge`,
+        description: `Visit ${target} ${category} spot${target > 1 ? 's' : ''} today`,
+        xpBonus: 100,
+        achieved: progress >= target,
+        claimed,
+      },
+    });
   },
 
-  // ─── Computed getters ─────────────────────────────────────────────────────
+  fetchRefinement: async () => {
+    // Refinement messages require the backend LLM service.
+    // When the backend is running, this will work automatically.
+    // No-op if backend is unavailable.
+    try {
+      const { authUser, collection } = get();
+      if (!authUser?.id) return;
+      const api = (await import('../services/api')).default;
+      const recent = collection.slice(-5);
+      const response = await api.post('/profile/refinement', {
+        user_id: authUser.id, recentVisits: recent,
+      });
+      set({ refinementMessage: response.data.message });
+    } catch (_) {}
+  },
+
+  getDailyChallenge: () => {
+    return get().dailyChallenge || {
+      target: 3, progress: 0, category: 'Exploring', emoji: '🌍', xpBonus: 100, title: 'Loading...', description: 'Loading your daily challenge...', achieved: false, claimed: false
+    };
+  },
+
+  claimDailyChallenge: () => {
+    const today = new Date().toDateString();
+    set(state => ({
+      questBonusXP: state.questBonusXP + 100,
+      dailyClaimed: { ...state.dailyClaimed, [today]: true }
+    }));
+  },
 
   /** Returns learned walk pace in km/h. Falls back to 4.5 until 2+ samples exist. */
   getWalkPaceKmh: () => {
@@ -204,112 +371,11 @@ const useStore = create((set, get) => ({
     const avg = walkPaceSamples.reduce((s, p) => s + p.paceKmh, 0) / walkPaceSamples.length;
     return Math.max(1.5, Math.min(8, avg)); // clamp to realistic range
   },
-
   getTotalXP: () =>
     get().collection.reduce((s, c) => s + (c.xpEarned || 150), 0) + get().questBonusXP,
   getLevel: () => computeLevel(get().getTotalXP()),
   getCurrentXP: () => get().getTotalXP() % XP_PER_LEVEL,
   getStreak: () => computeStreak(get().collection),
-
-  getActiveQuest: () => {
-    const { activeQuestId, collection, interests, completedQuests } = get();
-    const catMap = {
-      architecture: 'q_arch', food: 'q_food', history: 'q_history',
-      art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
-    };
-    const preferredId = activeQuestId ?? catMap[interests[0]] ?? 'q_arch';
-    const quest =
-      QUESTS.find((q) => q.id === preferredId && !completedQuests.includes(q.id)) ||
-      QUESTS.find((q) => !completedQuests.includes(q.id)) ||
-      QUESTS[0];
-
-    // Adaptive target scales with level
-    const level = computeLevel(get().getTotalXP());
-    const target = getQuestTarget(level);
-    const xp = getQuestXP(quest, target);
-    const progress = collection.filter((c) => c.category === quest.category).length;
-    return { ...quest, target, xp, progress: Math.min(progress, target) };
-  },
-
-  getSuggestedQuests: () => {
-    const { activeQuestId, interests, collection, completedQuests, visitorType } = get();
-    const catMap = {
-      architecture: 'q_arch', food: 'q_food', history: 'q_history',
-      art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
-    };
-
-    // Count visits per category for novelty sorting
-    const counts = {};
-    collection.forEach((c) => { counts[c.category] = (counts[c.category] || 0) + 1; });
-
-    const sorted = [...QUESTS].sort((a, b) => {
-      if (visitorType === 'local') {
-        // Locals: prefer least-explored categories (novelty-first)
-        const aCnt = counts[a.category] || 0;
-        const bCnt = counts[b.category] || 0;
-        return aCnt - bCnt;
-      }
-      // Tourists: prefer stated interests
-      const preferred = interests.map((i) => catMap[i]).filter(Boolean);
-      const aP = preferred.indexOf(a.id);
-      const bP = preferred.indexOf(b.id);
-      return (aP === -1 ? 99 : aP) - (bP === -1 ? 99 : bP);
-    });
-
-    const level = computeLevel(get().getTotalXP());
-    const target = getQuestTarget(level);
-
-    return sorted
-      .filter((q) => q.id !== activeQuestId && !completedQuests.includes(q.id))
-      .slice(0, 3)
-      .map((q) => ({
-        ...q,
-        target,
-        xp: getQuestXP(q, target),
-        progress: collection.filter((c) => c.category === q.category).length,
-      }));
-  },
-
-  /**
-   * Returns today's daily challenge, seeded by date + interests.
-   * Resets automatically at midnight.
-   */
-  getDailyChallenge: () => {
-    const { interests, collection, visitorType, dailyClaimed } = get();
-    const catMap = {
-      architecture: 'Architecture', food: 'Food', history: 'History',
-      art: 'Art', nature: 'Nature', nightlife: 'Nightlife',
-    };
-    const cats = interests.map((i) => catMap[i]).filter(Boolean);
-    if (!cats.length) return null;
-
-    // Deterministic day-seeded category pick (same for all with same interests on same day)
-    const dayNum = Math.floor(Date.now() / 86400000);
-    const category = cats[dayNum % cats.length];
-    // Locals get 2-stop challenge every other day, tourists always get 1
-    const target = visitorType === 'local' && dayNum % 2 === 0 ? 2 : 1;
-
-    // Count check-ins made today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const progress = collection.filter(
-      (c) => c.category === category && new Date(c.checkedInAt) >= today
-    ).length;
-
-    const todayStr = new Date().toDateString();
-    const claimed = !!dailyClaimed[todayStr];
-    const achieved = progress >= target;
-
-    return {
-      category,
-      emoji: DAILY_CATEGORY_EMOJIS[category] || '📍',
-      target,
-      progress: Math.min(progress, target),
-      xpBonus: target * 75,
-      achieved,
-      claimed,
-    };
-  },
 
   /**
    * Returns categories sorted by affinity score (0–100).
@@ -383,20 +449,24 @@ const useStore = create((set, get) => ({
     };
   },
 
-  // ─── Persistence ──────────────────────────────────────────────────────────
+  // ─── Internal ───
 
   _persist: async () => {
     const {
-      hasOnboarded, userName, interests, visitorType, collection,
-      activeQuestId, completedQuests, questBonusXP, dailyClaimed,
+      hasOnboarded, userName, interests, collection,
+      activeQuestId, preferences, quests, 
+      communities, userBadges, completedQuests, 
+      questBonusXP, dailyClaimed,
       walkPaceSamples, lastCheckIn,
     } = get();
     try {
       await AsyncStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
-          hasOnboarded, userName, interests, visitorType, collection,
-          activeQuestId, completedQuests, questBonusXP, dailyClaimed,
+          hasOnboarded, userName, interests, collection,
+          activeQuestId, preferences, quests, 
+          communities, userBadges, completedQuests, 
+          questBonusXP, dailyClaimed,
           walkPaceSamples, lastCheckIn,
         }),
       );
@@ -426,11 +496,15 @@ const useStore = create((set, get) => ({
         fetchCollections(authUser.id),
         fetchUserProfile(authUser.id),
       ]);
+
+      // Drift detection is computed server-side by the backend drift service.
+      // When the backend is running, drift data is stored in users.drift_detected_at
+      // and can be read from the profile. No mobile-side API call needed.
       const updates = {};
       if (serverCollection?.length) updates.collection = serverCollection;
       if (profile) {
         if (profile.display_name) updates.userName = profile.display_name;
-        if (profile.visitor_type) updates.visitorType = profile.visitor_type;
+        if (profile.preferences) updates.preferences = profile.preferences;
         if (profile.interests?.length) {
           updates.interests = profile.interests;
           updates.hasOnboarded = true;
@@ -439,6 +513,8 @@ const useStore = create((set, get) => ({
       if (Object.keys(updates).length) {
         set(updates);
         await get()._persist();
+        get().fetchDailyChallenge();
+        get().fetchRefinement();
       }
     } catch (e) {
       console.warn('syncFromSupabase error:', e.message);

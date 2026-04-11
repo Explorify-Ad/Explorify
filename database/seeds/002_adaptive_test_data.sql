@@ -37,14 +37,18 @@ DECLARE
 
 BEGIN
 
+  -- ── Resolve auth user UUIDs (with Fallback for local testing) ──────────────
   SELECT id INTO alice_id  FROM auth.users WHERE email = 'alice@explorify.test';
-  SELECT id INTO marco_id  FROM auth.users WHERE email = 'marco@explorify.test';
-  SELECT id INTO sophie_id FROM auth.users WHERE email = 'sophie@explorify.test';
-  SELECT id INTO dev_id    FROM auth.users WHERE email = 'dev@explorify.test';
+  IF alice_id IS NULL THEN alice_id := 'f0000000-0000-0000-0000-000000000001'; END IF;
 
-  IF alice_id IS NULL OR marco_id IS NULL OR sophie_id IS NULL OR dev_id IS NULL THEN
-    RAISE EXCEPTION 'Existing test users not found. Run seed 001 first.';
-  END IF;
+  SELECT id INTO marco_id  FROM auth.users WHERE email = 'marco@explorify.test';
+  IF marco_id IS NULL THEN marco_id := 'f0000000-0000-0000-0000-000000000002'; END IF;
+
+  SELECT id INTO sophie_id FROM auth.users WHERE email = 'sophie@explorify.test';
+  IF sophie_id IS NULL THEN sophie_id := 'f0000000-0000-0000-0000-000000000003'; END IF;
+
+  SELECT id INTO dev_id    FROM auth.users WHERE email = 'dev@explorify.test';
+  IF dev_id IS NULL THEN dev_id := 'f0000000-0000-0000-0000-000000000004'; END IF;
 
   -- ===========================================================================
   -- 1. SUPPLEMENTAL CHECK-INS
@@ -100,7 +104,7 @@ BEGIN
   INSERT INTO expeditions
     (id, title, created_by, creator_name,
      landmark_id, landmark_name, landmark_lat, landmark_lon,
-     categories, group_size, duration, dna_only, status, created_at)
+     categories, group_size, duration, dna_only, status, is_narrative, created_at)
   VALUES
 
     -- A) Nightlife & Food tour (Marco is creator)
@@ -110,7 +114,7 @@ BEGIN
       'After Dark: Pubs & Hidden Gems',
       marco_id, 'Marco Walsh',
       lm_temple_bar, 'Temple Bar', 53.3452, -6.2644,
-      ARRAY['nightlife','food'], 5, '2hr', false, 'active',
+      ARRAY['nightlife','food'], 5, '2hr', false, 'active', false,
       NOW() - INTERVAL '45 minutes'),
 
     -- B) Architecture deep-dive (Dev is creator)
@@ -120,7 +124,7 @@ BEGIN
       'Georgian Dublin: Doors & Details',
       dev_id, 'Dev Admin',
       lm_merrion_sq, 'Merrion Square', 53.3391, -6.2484,
-      ARRAY['architecture','history'], 6, '2hr', false, 'active',
+      ARRAY['architecture','history'], 6, '2hr', false, 'active', false,
       NOW() - INTERVAL '20 minutes'),
 
     -- C) Stale expedition: active but created 26 hours ago
@@ -130,7 +134,7 @@ BEGIN
       'Night History Walk (should auto-expire)',
       alice_id, 'Alice Chen',
       lm_nat_museum, 'National Museum of Ireland', 53.3402, -6.2537,
-      ARRAY['history'], 3, '1.5hr', false, 'active',
+      ARRAY['history'], 3, '1.5hr', false, 'active', false,
       NOW() - INTERVAL '26 hours'),
 
     -- D) Ended expedition: tests Past tab in MyExpeditions
@@ -138,7 +142,7 @@ BEGIN
       'Art & Architecture Morning (ended)',
       dev_id, 'Dev Admin',
       lm_malahide, 'Malahide Castle & Gardens', 53.4500, -6.1545,
-      ARRAY['art','architecture'], 4, '3hr', false, 'ended',
+      ARRAY['art','architecture'], 4, '3hr', false, 'ended', false,
       NOW() - INTERVAL '3 days')
 
   ON CONFLICT (id) DO NOTHING;

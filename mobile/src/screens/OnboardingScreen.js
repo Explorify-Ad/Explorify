@@ -32,10 +32,33 @@ const VISITOR_TYPES = [
   },
 ];
 
+const CONTEXTS = [
+  { id: 'solo', label: 'Going Solo', icon: '🚶‍♂️' },
+  { id: 'kids', label: 'With Kids', icon: '👶' },
+  { id: 'elderly', label: 'With Elderly', icon: '🧓' },
+  { id: 'large_group', label: 'Large Group', icon: '👥' },
+];
+
+const PACES = [
+  { id: 'quick', speed: 5.5, label: 'Quick Glances', icon: '⏱️' },
+  { id: 'leisurely', speed: 4.5, label: 'Leisurely Pace', icon: '🚶‍♀️' },
+  { id: 'deep_dive', speed: 3.0, label: 'Deep Dive', icon: '🔍' },
+];
+
+const ACCESSIBILITY = [
+  { id: 0, label: 'None', icon: '✨' },
+  { id: 2, label: 'Relatively Flat', icon: '🛣️' },
+  { id: 4, label: 'Wheelchair Friendly', icon: '♿' },
+  { id: 5, label: 'Minimal Stairs', icon: '🛗' },
+];
+
 export default function OnboardingScreen() {
   const [step, setStep]               = useState(0);
   const [selected, setSelected]       = useState(new Set());
   const [visitorType, setVisitorType] = useState(null);
+  const [groupContext, setGroupContext] = useState('solo');
+  const [pace, setPace]               = useState(4.5);
+  const [accessibility, setAccessibility] = useState(0);
 
   const navigation        = useNavigation();
   const { theme }         = useTheme();
@@ -48,7 +71,11 @@ export default function OnboardingScreen() {
   };
 
   const handleFinish = () => {
-    completeOnboarding(Array.from(selected), 'Explorer', visitorType ?? 'tourist');
+    completeOnboarding(Array.from(selected), 'Explorer', visitorType ?? 'tourist', {
+      group_context: groupContext,
+      walking_speed_kmh: pace,
+      accessibility_min: accessibility
+    });
     navigation.navigate('Main');
   };
 
@@ -60,7 +87,7 @@ export default function OnboardingScreen() {
 
           {/* Step dots */}
           <View style={styles.dots}>
-            {[0, 1].map((i) => (
+            {[0, 1, 2, 3, 4].map((i) => (
               <View
                 key={i}
                 style={[styles.dot, { backgroundColor: i === step ? theme.primary : 'rgba(0,0,0,0.1)' }]}
@@ -154,10 +181,125 @@ export default function OnboardingScreen() {
                   <Text style={[styles.backText, { color: theme.textSecondary }]}>Back</Text>
                 </Pressable>
                 <PrimaryAction
-                  onPress={handleFinish}
+                  onPress={() => setStep(2)}
                   disabled={!visitorType}
                   style={{ flex: 1 }}
                 >
+                  Continue
+                </PrimaryAction>
+              </View>
+            </>
+          )}
+
+          {/* ── Step 2: Context ── */}
+          {step === 2 && (
+            <>
+              <Text style={[styles.title, { color: theme.textPrimary }]}>Who are you exploring with?</Text>
+              <Text style={[styles.sub, { color: theme.textSecondary }]}>
+                We'll tailor the route length and venues.
+              </Text>
+
+              <View style={styles.grid}>
+                {CONTEXTS.map((ctx) => {
+                  const isSelected = groupContext === ctx.id;
+                  return (
+                    <Pressable
+                      key={ctx.id}
+                      onPress={() => setGroupContext(ctx.id)}
+                      style={[
+                        styles.catBtn,
+                        { backgroundColor: '#0ea5e9', opacity: isSelected ? 1 : 0.68 },
+                        isSelected && { borderWidth: 2.5, borderColor: 'white' },
+                      ]}
+                    >
+                      <Text style={styles.catIcon}>{ctx.icon}</Text>
+                      <Text style={styles.catLabel}>{ctx.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.backRow}>
+                <Pressable onPress={() => setStep(1)} style={styles.backBtn}>
+                  <Text style={[styles.backText, { color: theme.textSecondary }]}>Back</Text>
+                </Pressable>
+                <PrimaryAction onPress={() => setStep(3)} style={{ flex: 1 }}>
+                  Continue
+                </PrimaryAction>
+              </View>
+            </>
+          )}
+
+          {/* ── Step 3: Pace ── */}
+          {step === 3 && (
+            <>
+              <Text style={[styles.title, { color: theme.textPrimary }]}>What is your pace?</Text>
+              <Text style={[styles.sub, { color: theme.textSecondary }]}>
+                This helps us estimate timings.
+              </Text>
+
+              <View style={styles.grid}>
+                {PACES.map((p) => {
+                  const isSelected = pace === p.speed;
+                  return (
+                    <Pressable
+                      key={p.speed}
+                      onPress={() => setPace(p.speed)}
+                      style={[
+                        styles.catBtn, { width: '100%' },
+                        { backgroundColor: '#6366f1', opacity: isSelected ? 1 : 0.68 },
+                        isSelected && { borderWidth: 2.5, borderColor: 'white' },
+                      ]}
+                    >
+                      <Text style={styles.catLabel}>{p.icon} {p.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.backRow}>
+                <Pressable onPress={() => setStep(2)} style={styles.backBtn}>
+                  <Text style={[styles.backText, { color: theme.textSecondary }]}>Back</Text>
+                </Pressable>
+                <PrimaryAction onPress={() => setStep(4)} style={{ flex: 1 }}>
+                  Continue
+                </PrimaryAction>
+              </View>
+            </>
+          )}
+
+          {/* ── Step 4: Accessibility ── */}
+          {step === 4 && (
+            <>
+              <Text style={[styles.title, { color: theme.textPrimary }]}>Any accessibility preferences?</Text>
+              <Text style={[styles.sub, { color: theme.textSecondary }]}>
+                We'll filter routes appropriately.
+              </Text>
+
+              <View style={styles.grid}>
+                {ACCESSIBILITY.map((a) => {
+                  const isSelected = accessibility === a.id;
+                  return (
+                    <Pressable
+                      key={a.id}
+                      onPress={() => setAccessibility(a.id)}
+                      style={[
+                        styles.catBtn, { width: '100%' },
+                        { backgroundColor: '#10b981', opacity: isSelected ? 1 : 0.68 },
+                        isSelected && { borderWidth: 2.5, borderColor: 'white' },
+                      ]}
+                    >
+                      <Text style={styles.catLabel}>{a.icon} {a.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.backRow}>
+                <Pressable onPress={() => setStep(3)} style={styles.backBtn}>
+                  <Text style={[styles.backText, { color: theme.textSecondary }]}>Back</Text>
+                </Pressable>
+                <PrimaryAction onPress={handleFinish} style={{ flex: 1 }}>
                   Let's explore
                 </PrimaryAction>
               </View>

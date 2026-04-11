@@ -38,12 +38,12 @@ export default function LoginScreen() {
         password,
       });
       if (authError) throw authError;
-      const user = data.user;
+      const { user, session } = data;
       setAuthUser({
         id: user.id,
         email: user.email,
         name: user.user_metadata?.name || user.email.split('@')[0],
-      });
+      }, session?.access_token);
       navigation.navigate('Main');
     } catch (e) {
       setError(e.message || 'Login failed. Please try again.');

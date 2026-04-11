@@ -7,8 +7,8 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, MapPin, ChevronDown, Plus, Minus, Building2, Utensils, Trees, Landmark, Palette, Music } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
-import { createExpedition } from '../services/supabase';
 import useStore from '../store/useStore';
+import api from '../services/api';
 
 const CORAL = '#FF6B6B';
 
@@ -23,6 +23,18 @@ const CATEGORIES = [
 
 const DURATIONS = ['30min', '1hr', '2hr', 'Half Day', 'Custom'];
 
+const COMPANY_TYPES = [
+  { id: 'solo',      label: 'Solo',      icon: '🧍' },
+  { id: 'date',      label: 'Date',      icon: '👫' },
+  { id: 'duo',       label: 'Duo',       icon: '👯' },
+  { id: 'family',    label: 'Family',    icon: '👨‍👩‍👧‍👦' },
+  { id: 'friends',   label: 'Friends',   icon: '👥' },
+  { id: 'kids',      label: 'With Kids', icon: '🧸' },
+  { id: 'elderly',   label: 'Elderly',   icon: '🧓' },
+  { id: 'community', label: 'Community', icon: '🏛️' },
+];
+
+
 export default function CreateExpeditionScreen() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -33,13 +45,16 @@ export default function CreateExpeditionScreen() {
   const landmarks = route.params?.landmarks ?? [];
 
   const [title, setTitle]               = useState('');
+  const [description, setDescription]   = useState('');
   const [selected, setSelected]         = useState(new Set());
   const [groupSize, setGroupSize]       = useState(4);
+  const [companyType, setCompanyType]   = useState('solo');
   const [duration, setDuration]         = useState('2hr');
   const [dnaOnly, setDnaOnly]           = useState(true);
   const [launching, setLaunching]       = useState(false);
   const [meetingPoint, setMeetingPoint] = useState(null);
   const [pickerOpen, setPickerOpen]     = useState(false);
+
 
   const toggle = (id) => {
     const next = new Set(selected);
@@ -49,32 +64,45 @@ export default function CreateExpeditionScreen() {
 
   const isValid = title.length > 0 && selected.size > 0;
 
+  const group_id = route.params?.group_id;
+
   const handleLaunch = async () => {
     if (!isValid || launching) return;
     setLaunching(true);
     try {
-      const exp = await createExpedition(authUser.id, authUser.name, {
+      const payload = {
         title,
+        description,
         categories: [...selected],
-        groupSize,
+        group_size: groupSize,
         duration,
-        dnaOnly,
-        landmarkId:   meetingPoint?.id   ?? null,
-        landmarkName: meetingPoint?.name ?? null,
-        landmarkLat:  meetingPoint?.lat  ?? null,
-        landmarkLon:  meetingPoint?.lon  ?? null,
-      });
-      navigation.replace('ExpeditionChat', {
-        expedition: {
-          id: exp.id,
-          title: exp.title,
-          memberCount: 1,
-          categories: exp.categories,
-          landmark: meetingPoint ? { name: meetingPoint.name } : null,
-        },
-      });
+        group_id, // Pass if launched from GroupChat
+        landmark_id:   meetingPoint?.id   ?? null,
+        landmark_name: meetingPoint?.name ?? null,
+        landmark_lat:  meetingPoint?.lat  ?? null,
+        landmark_lon:  meetingPoint?.lon  ?? null,
+      };
+      
+      const response = await api.post('/expeditions', payload);
+      const exp = response.data.data;
+      
+      if (group_id) {
+        // If launched from group chat, go back to the chat so they can see the post
+        navigation.goBack();
+      } else {
+        // For standalone, navigate to the specific Expedition view/chat
+        navigation.replace('ExpeditionChat', {
+          expedition: {
+            id: exp.id,
+            title: exp.title,
+            memberCount: 1,
+            categories: exp.categories,
+            landmark: meetingPoint ? { name: meetingPoint.name } : null,
+          },
+        });
+      }
     } catch (e) {
-      console.warn('createExpedition error:', e.message);
+      console.warn('createExpedition API error:', e.message);
       setLaunching(false);
     }
   };
@@ -107,7 +135,17 @@ export default function CreateExpeditionScreen() {
           onChangeText={(t) => setTitle(t.slice(0, 60))}
           maxLength={60}
         />
+        <TextInput
+          style={[styles.descInput, { color: theme.textPrimary }]}
+          placeholder="What's the vibe? (e.g. Chill coffee walk, Art hunting...)"
+          placeholderTextColor={theme.textSecondary}
+          value={description}
+          onChangeText={(t) => setDescription(t.slice(0, 140))}
+          maxLength={140}
+          multiline
+        />
         <Text style={[styles.charCount, { color: theme.textSecondary }]}>{title.length} / 60</Text>
+
 
         {/* Theme picker */}
         <Text style={[styles.label, { color: theme.textPrimary }]}>What are you exploring?</Text>
@@ -178,7 +216,36 @@ export default function CreateExpeditionScreen() {
           </View>
         </Modal>
 
+        {/* Company Type */}
+        <Text style={[styles.label, { color: theme.textPrimary }]}>Who are you with?</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.companyRow}>
+          {COMPANY_TYPES.map((ct) => (
+            <Pressable
+              key={ct.id}
+              onPress={() => {
+                setCompanyType(ct.id);
+                // Adjust group size baseline based on company type
+                if (ct.id === 'solo') setGroupSize(1);
+                else if (ct.id === 'duo') setGroupSize(2);
+                else if (ct.id === 'family') setGroupSize(4);
+                else if (ct.id === 'community') setGroupSize(8);
+              }}
+              style={[styles.companyChip,
+                companyType === ct.id
+                  ? { backgroundColor: CORAL, borderColor: CORAL }
+                  : { backgroundColor: 'white', borderColor: 'rgba(0,0,0,0.1)' }]}
+            >
+              <Text style={{ fontSize: 16, marginRight: 6 }}>{ct.icon}</Text>
+              <Text style={[styles.companyText,
+                { color: companyType === ct.id ? 'white' : theme.textPrimary }]}>
+                {ct.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
         {/* Group size */}
+
         <Text style={[styles.label, { color: theme.textPrimary }]}>Group Size</Text>
         <View style={styles.stepperRow}>
           <Pressable
@@ -274,7 +341,9 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 16, paddingTop: 20 },
 
   titleInput: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
+  descInput: { fontSize: 16, marginBottom: 8, minHeight: 40 },
   charCount: { fontSize: 11, textAlign: 'right', marginBottom: 24 },
+
 
   label: { fontSize: 14, fontWeight: '600', marginBottom: 12 },
 
@@ -321,6 +390,17 @@ const styles = StyleSheet.create({
   stepCount: { alignItems: 'center' },
   stepNum: { fontSize: 40, fontWeight: '700' },
   stepSub: { fontSize: 12 },
+
+  companyRow: { marginBottom: 24 },
+  companyChip: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14,
+    borderWidth: 1, marginRight: 10,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05, shadowRadius: 2, elevation: 1,
+  },
+  companyText: { fontSize: 14, fontWeight: '600' },
+
 
   durationRow: { marginBottom: 24 },
   durationChip: {

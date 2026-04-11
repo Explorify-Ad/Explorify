@@ -67,16 +67,19 @@ export async function fetchNearbyLandmarks(userLat, userLon, radiusMeters = 1000
 
 // ─── Collections ──────────────────────────────────────────────────────────────
 
-export async function saveCheckIn(userId, landmark, xpEarned) {
+export async function saveCheckIn(userId, landmark, xpEarned, feedback = {}) {
   const { error } = await supabase.from('collections').upsert({
     user_id: userId,
     landmark_id: isUUID(landmark.id) ? landmark.id : null,
     landmark_name: landmark.name,
-    landmark_lat: landmark.lat,
-    landmark_lon: landmark.lon,
+    landmark_lat: landmark.lat ?? landmark.latitude,
+    landmark_lon: landmark.lon ?? landmark.longitude,
     landmark_category: landmark.category,
     landmark_tier: landmark.tier,
     xp_earned: xpEarned,
+    dwell_time_min: feedback.dwellTime || 0,
+    rating: feedback.rating || null,
+    notes: feedback.notes || '',
     visited_at: new Date().toISOString(),
   }, { onConflict: 'user_id,landmark_id', ignoreDuplicates: true });
   if (error) console.warn('saveCheckIn error:', error.message);
@@ -183,6 +186,7 @@ export async function createExpedition(userId, userName, data) {
     .from('expeditions')
     .insert({
       title:         data.title,
+      description:   data.description  ?? '',
       created_by:    userId,
       creator_name:  userName,
       landmark_id:   data.landmarkId   ?? null,
@@ -191,6 +195,7 @@ export async function createExpedition(userId, userName, data) {
       landmark_lon:  data.landmarkLon  ?? null,
       categories:    data.categories   ?? [],
       group_size:    data.groupSize    ?? 4,
+      company_type:  data.companyType  ?? 'solo',
       duration:      data.duration     ?? '2hr',
       dna_only:      data.dnaOnly      ?? true,
     })
@@ -276,6 +281,40 @@ export async function updateExpeditionStatus(expeditionId, status) {
   if (error) throw error;
 }
 
+// ─── Communities ──────────────────────────────────────────────────────────────
+
+export async function fetchCommunities(userId = null) {
+  const { data: communities, error: ce } = await supabase
+    .from('communities')
+    .select('*')
+    .order('name');
+  if (ce) throw ce;
+
+  if (userId) {
+    const { data: memberships, error: me } = await supabase
+      .from('community_members')
+      .select('community_id')
+      .eq('user_id', userId);
+    if (me) throw me;
+
+    const memberSet = new Set((memberships || []).map(m => m.community_id));
+    return communities.map(c => ({
+      ...c,
+      is_member: memberSet.has(c.id)
+    }));
+  }
+
+  return communities;
+}
+
+export async function joinCommunity(communityId, userId) {
+  const { error } = await supabase
+    .from('community_members')
+    .upsert({ community_id: communityId, user_id: userId },
+             { onConflict: 'community_id,user_id', ignoreDuplicates: true });
+  if (error) throw error;
+}
+
 /** All expeditions the user has joined (active + ended), newest first. */
 export async function fetchMyExpeditions(userId) {
   const { data: memberships, error: me } = await supabase
@@ -352,6 +391,45 @@ export function subscribeToMessages(expeditionId, onMessage) {
     .on('postgres_changes', {
       event: 'INSERT', schema: 'public', table: 'messages',
       filter: `expedition_id=eq.${expeditionId}`,
+    }, (payload) => onMessage(payload.new))
+    .subscribe();
+}
+
+export async function sendChannelMessage(channelId, senderId, senderName, content, type = 'text', metadata = {}) {
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({ 
+      channel_id: channelId, 
+      sender_id: senderId, 
+      sender_name: senderName,
+      content, 
+      type, 
+      metadata 
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchChannelMessages(channelId) {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('channel_id', channelId)
+    .order('created_at');
+  if (error) throw error;
+  return data;
+}
+
+export function subscribeToChannelMessages(channelId, onMessage) {
+  return supabase
+    .channel(`channel_messages:${channelId}`)
+    .on('postgres_changes', {
+      event: 'INSERT', 
+      schema: 'public', 
+      table: 'messages',
+      filter: `channel_id=eq.${channelId}`,
     }, (payload) => onMessage(payload.new))
     .subscribe();
 }

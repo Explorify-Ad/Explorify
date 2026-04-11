@@ -11,30 +11,18 @@ const BASE_URL = 'https://api.openweathermap.org/data/2.5';
  * @returns {Promise<object>} Weather data
  */
 export const getCurrentWeather = async (lat, lon) => {
-  // TODO: Add error handling
-  // TODO: Implement caching
-  const response = await axios.get(`${BASE_URL}/weather`, {
-    params: {
-      lat,
-      lon,
-      appid: API_KEY,
-      units: 'metric',
-    },
+  const api = (await import('./api')).default;
+  
+  const response = await api.get('/landmarks/context', {
+    params: { lat, lng: lon },
   });
 
-  const temp      = response.data.main.temp;
-  const windSpeed = response.data.wind.speed;
-  const main      = response.data.weather[0].main;
-
+  const weather = response.data.data.weather;
+  
+  // Map backend format to component expectations if needed
   return {
-    temp,
-    description: response.data.weather[0].description,
-    icon:        response.data.weather[0].icon,
-    windSpeed,
-    isRaining: main === 'Rain' || main === 'Drizzle' || main === 'Thunderstorm',
-    isCold:    temp < 8,
-    isHot:     temp > 25,
-    isWindy:   windSpeed > 6,
-    isClear:   (main === 'Clear' || main === 'Clouds') && temp >= 12 && temp <= 24 && windSpeed <= 4,
+    ...weather,
+    isWindy: weather.windSpeed > 20, // Match backend threshold
+    isClear: weather.description.includes('clear') || weather.description.includes('clouds'), 
   };
 };

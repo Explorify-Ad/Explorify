@@ -12,9 +12,11 @@ import { Clock, CheckCircle2 } from 'lucide-react-native';
 import { TopHUD } from '../components/explorify/TopHUD';
 import { SecondaryAction } from '../components/explorify/Buttons';
 import { useTheme } from '../context/ThemeContext';
-import useStore, { QUESTS } from '../store/useStore';
+import useStore from '../store/useStore';
+import { useNavigation } from '@react-navigation/native';
 
 export default function QuestsScreen() {
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { theme, setMode } = useTheme();
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -36,8 +38,34 @@ export default function QuestsScreen() {
   const suggested    = getSuggestedQuests();
   const explorerType = getExplorerType();
 
+  const handleStartQuest = (quest) => {
+    setActiveQuest(quest.id);
+    navigation.navigate('ExpeditionPreview', {
+      isQuest: true,
+      expedition: {
+        id: quest.id,
+        title: quest.title,
+        description: `Your personal challenge: ${quest.title}`,
+        companyType: 'solo',
+        created_by: '1',
+        memberCount: 1,
+        categories: [quest.category || 'Architecture'],
+        dnaMatch: 100,
+        members: ['ME'],
+        memberIds: ['1'],
+        spotsLeft: 0,
+        meetingPoint: 'Nearby Area',
+        startsIn: 'Now',
+        landmark: null,
+        leader: { name: 'You', type: explorerType.type || 'Explorer', level: 1, avatar: 'M' },
+        reasons: ['Gamified Discovery', 'Solo Challenge']
+      }
+    });
+  };
+
   const isComplete = activeQuest.progress >= activeQuest.target;
-  const allDone    = QUESTS.every((q) => completedQuests.includes(q.id));
+  const allQuests    = useStore((s) => s.getFormattedQuests());
+  const allDone      = allQuests.length > 0 && allQuests.every((q) => completedQuests.includes(q.id));
 
   const progressPct = activeQuest.target > 0 ? activeQuest.progress / activeQuest.target : 0;
 
@@ -132,7 +160,7 @@ export default function QuestsScreen() {
         </Text>
         <Text style={[styles.sectionSub, { color: theme.textSecondary }]}>
           {completedQuests.length > 0
-            ? `${completedQuests.length} of ${QUESTS.length} quests completed`
+            ? `${completedQuests.length} of ${allQuests.length} quests completed`
             : 'Tap Start to make a quest active'}
         </Text>
 
@@ -194,8 +222,8 @@ export default function QuestsScreen() {
                   </View>
                   <Text style={[styles.questXP, { color: theme.primary }]}>{quest.xp} XP</Text>
                 </View>
-                <SecondaryAction style={{ width: '100%' }} onPress={() => setActiveQuest(quest.id)}>
-                  Start
+                <SecondaryAction style={{ width: '100%' }} onPress={() => handleStartQuest(quest)}>
+                  Start Quest
                 </SecondaryAction>
               </View>
             </View>

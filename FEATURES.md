@@ -191,13 +191,40 @@ Backend JOINs `collections` + `landmarks` to compute per-user per-category avg d
 
 ---
 
+### Feature 11 — Cold Start Problem
+**Status:** Done
+**Files:** `backend/src/services/recommendationService.js`, `backend/src/services/routeService.js`, `mobile/src/screens/OnboardingScreen.js`, `mobile/src/store/useStore.js`
+New users with zero check-in history get routes seeded from their onboarding data:
+- Onboarding interests (e.g. "architecture", "food") map to DB category enums and boost matching landmarks.
+- Visitor type (tourist/local) triggers predefined cold-start tag boosting (e.g. "iconic" for tourists, "hidden-gem" for locals).
+- Public-tier landmarks get a beginner-friendly score boost; hidden-tier landmarks are soft-penalised.
+- Cold start weight: 9% of the composite score, replaced by novelty/dwell learning once user checks in.
+
+---
+
+### Feature 12 — Repeat-Visit Avoidance
+**Status:** Done
+**Files:** `backend/src/services/routeService.js`
+Already-visited landmarks receive a −0.25 score penalty in route building. Visited IDs are queried from `collections` per request. The penalty is soft (not hard exclusion), so a visited landmark can still appear if no alternatives fit the time budget.
+
+---
+
+### Feature 13 — Scrutability (Transparent Adaptation)
+**Status:** Done
+**Files:** `backend/src/services/recommendationService.js`, `backend/src/services/routeService.js`, `mobile/src/screens/RouteBuilderScreen.js`, `mobile/src/screens/HomeScreen.js`, `mobile/src/screens/ProfileScreen.js`
+Every adaptive decision is surfaced to the user:
+- **Route Builder**: "Why this route?" expandable panel lists all active adaptations (cold start, time-of-day, weather, visitor type, difficulty tier, battery, group context, interests).
+- **Waypoint Cards**: Each landmark shows up to 3 emoji-decorated reason chips (e.g. "🌧️ Rainy Day Pick", "🎯 Matches Your Interests", "🆕 Beginner Pick").
+- **Home Screen**: "Your Adaptive Profile" card shows active context chips (time slot, visitor type, weather, battery, interests, cold start badge) as live indicators.
+- **Profile Screen**: "How Explorify Adapts to You" section shows cold start status, learned walking pace, dwell time learning state, XP-based difficulty tier, route abandonment tracking, and check-in count driving personalisation.
+- Route API responses include `active_adaptations[]` and `cold_start` boolean for client-side transparency.
+
+---
+
 ## Planned / Not Yet Implemented
 
 | Feature | Notes |
 |---------|-------|
 | CV Camera Landmark ID | Plan file exists at `~/.claude/plans/ethereal-tumbling-sprout.md`. Uses Google Cloud Vision `LANDMARK_DETECTION`. Needs `expo-camera` install + Vision API key. |
-| Repeat-Visit Avoidance | Score-down already-visited landmarks in route service. Zero new data — collection is available. |
-| Route Generation UI | Mobile screen to call the backend route API with user context (weather, battery, visitor type, category counts). |
 | DM / Direct Messages | `messages` table supports DMs (`dm_peer_id`). `sendDirectMessage` / `fetchDirectMessages` in `supabase.js`. UI not built. |
-| Dwell Time Tracking | `dwell_time_min` column exists in `collections`. Need to track time between "arrive" and "check in" in `LandmarkDetailScreen`. |
 | Group / Social Context | "Who are you exploring with?" selector (Solo / Kids / Elderly / Group) before route gen. |

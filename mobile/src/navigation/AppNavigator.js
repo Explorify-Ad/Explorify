@@ -1,9 +1,9 @@
 import React, { useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Map, Target, Briefcase, User, Route } from 'lucide-react-native';
+import { Map, Target, Briefcase, User, Route, Home } from 'lucide-react-native';
 
 import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
@@ -18,7 +18,12 @@ import NearbyScreen from '../screens/NearbyScreen';
 import CreateExpeditionScreen from '../screens/CreateExpeditionScreen';
 import ExpeditionPreviewScreen from '../screens/ExpeditionPreviewScreen';
 import ExpeditionChatScreen from '../screens/ExpeditionChatScreen';
+import CommunityScreen from '../screens/CommunityScreen';
+import CommunityChatScreen from '../screens/CommunityChatScreen';
 import MyExpeditionsScreen from '../screens/MyExpeditionsScreen';
+import HomeScreen from '../screens/HomeScreen';
+import DirectMessagesScreen from '../screens/DirectMessagesScreen';
+import DirectChatScreen from '../screens/DirectChatScreen';
 import { useTheme } from '../context/ThemeContext';
 import useStore from '../store/useStore';
 import supabase from '../services/supabase';
@@ -48,12 +53,13 @@ function TabNavigator() {
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarLabelStyle: { fontSize: 11, fontWeight: '500', marginTop: 2 },
         tabBarIcon: ({ focused, color }) => {
-          const icons = { Map, Quests: Target, Route, Collection: Briefcase, Profile: User };
+          const icons = { Home, Map, Quests: Target, Route, Collection: Briefcase, Profile: User };
           const Icon = icons[route.name];
           return <Icon size={22} color={color} strokeWidth={focused ? 2.5 : 1.8} />;
         },
       })}
     >
+      <Tab.Screen name="Home"       component={HomeScreen} />
       <Tab.Screen name="Map"        component={MapScreen} />
       <Tab.Screen name="Quests"     component={QuestsScreen} />
       <Tab.Screen name="Route"      component={RouteBuilderScreen} options={{ tabBarLabel: 'Route' }} />
@@ -71,6 +77,8 @@ export default function AppNavigator() {
   const hydrate            = useStore((s) => s.hydrate);
   const setAuthUser        = useStore((s) => s.setAuthUser);
   const syncFromSupabase   = useStore((s) => s.syncFromSupabase);
+  const fetchQuests        = useStore((s) => s.fetchQuests);
+  const fetchCommunities   = useStore((s) => s.fetchCommunities);
 
   useEffect(() => {
     hydrate();
@@ -82,7 +90,9 @@ export default function AppNavigator() {
           id: session.user.id,
           email: session.user.email,
           name: session.user.user_metadata?.name || session.user.email.split('@')[0],
-        });
+        }, session.access_token);
+        fetchQuests();
+        fetchCommunities();
       }
     });
 
@@ -93,10 +103,12 @@ export default function AppNavigator() {
           id: session.user.id,
           email: session.user.email,
           name: session.user.user_metadata?.name || session.user.email.split('@')[0],
-        });
+        }, session.access_token);
         syncFromSupabase();
+        fetchQuests();
+        fetchCommunities();
       } else {
-        setAuthUser(null);
+        setAuthUser(null, null);
       }
     });
 
@@ -117,6 +129,30 @@ export default function AppNavigator() {
     : !hasOnboarded
     ? 'Onboarding'
     : 'Main';
+
+  const isConfigPlaceholder =
+    !process.env.EXPO_PUBLIC_SUPABASE_URL ||
+    process.env.EXPO_PUBLIC_SUPABASE_URL.includes('your-project') ||
+    !process.env.EXPO_PUBLIC_TOMTOM_API_KEY;
+
+  if (isConfigPlaceholder) {
+    return (
+      <View style={{ flex: 1, padding: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFDF8' }}>
+        <Text style={{ fontSize: 40, marginBottom: 20 }}>⚙️</Text>
+        <Text style={{ fontSize: 24, fontWeight: '800', textAlign: 'center', color: '#1A1A2E', marginBottom: 12 }}>
+          Configuration Required
+        </Text>
+        <Text style={{ fontSize: 14, textAlign: 'center', color: '#6B7280', lineHeight: 22 }}>
+          Please fill in your Supabase and TomTom keys in the <Text style={{ fontWeight: '700' }}>mobile/.env</Text> file and restart the Expo server.
+        </Text>
+        <View style={{ marginTop: 32, padding: 16, backgroundColor: '#FEF3C7', borderRadius: 12 }}>
+          <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '600' }}>
+            Note: Placeholders like 'your-project' were detected.
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <NavigationContainer>
@@ -156,8 +192,26 @@ export default function AppNavigator() {
           component={ExpeditionChatScreen}
         />
         <Stack.Screen
+          name="Community"
+          component={CommunityScreen}
+          options={{ title: 'Communities' }}
+        />
+        <Stack.Screen
+          name="CommunityChat"
+          component={CommunityChatScreen}
+          options={{ title: 'Community Chat' }}
+        />
+        <Stack.Screen
           name="MyExpeditions"
           component={MyExpeditionsScreen}
+        />
+        <Stack.Screen
+          name="DirectMessages"
+          component={DirectMessagesScreen}
+        />
+        <Stack.Screen
+          name="DirectChat"
+          component={DirectChatScreen}
         />
       </Stack.Navigator>
     </NavigationContainer>
