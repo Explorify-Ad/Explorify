@@ -85,6 +85,8 @@ const useStore = create((set, get) => ({
   hydrated: false,
   authUser: null,          
   isAuthenticated: false,
+  driftAlert: null,
+  refinementMessage: null,
 
   // ─── Actions ──────────────────────────────────────────────────────────────
 
@@ -259,8 +261,6 @@ const useStore = create((set, get) => ({
       return { xp, error: err.message };
     }
   },
-    }
-  },
 
   recordWalkSegment: async (distanceM, durationSec) => {
     const paceKmh = (distanceM / 1000) / (durationSec / 3600);
@@ -376,8 +376,7 @@ const useStore = create((set, get) => ({
   getCurrentXP: () => get().getTotalXP() % XP_PER_LEVEL,
   getStreak: () => computeStreak(get().collection),
 
-<<<<<<< HEAD
-=======
+  },
   getActiveQuest: () => {
     const { activeQuestId, collection, interests, completedQuests } = get();
     const catMap = {
@@ -527,7 +526,7 @@ const useStore = create((set, get) => ({
     return EXPLORER_TYPES[top?.[0]] || { type: 'Urban Explorer', desc: 'No corner goes unchecked.' };
   },
 
->>>>>>> 9c0402ae7bfc81f796e74f609929123b63ac0db5
+  },
   getDNAStats: () => {
     const { collection } = get();
     const categories = ['Architecture', 'Food', 'History', 'Art', 'Nature', 'Hidden', 'Nightlife', 'Culture'];
@@ -551,23 +550,7 @@ const useStore = create((set, get) => ({
     };
   },
 
-  getExplorerType: () => {
-    const { collection, interests } = get();
-    if (!collection.length) {
-      const catMap = {
-        architecture: 'Architecture', food: 'Food', history: 'History',
-        art: 'Art', nature: 'Nature', nightlife: 'Nightlife',
-      };
-      const cat = catMap[interests[0]] || 'Architecture';
-      return EXPLORER_TYPES[cat] || { type: 'Newcomer', desc: 'Just getting started.' };
-    }
-    const counts = {};
-    collection.forEach((c) => { counts[c.category] = (counts[c.category] || 0) + 1; });
-    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-    return EXPLORER_TYPES[top?.[0]] || { type: 'Urban Explorer', desc: 'No corner goes unchecked.' };
-  },
-
-  // ─── Internal ─────────────────────────────────────────────────────────────
+  // ─── Internal ───
 
   _persist: async () => {
     const {

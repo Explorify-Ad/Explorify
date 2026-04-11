@@ -17,11 +17,8 @@ import { useTheme } from '../context/ThemeContext';
 import { TIER_COLORS, CATEGORY_COLORS } from '../utils/theme';
 import { CATEGORY_ICONS } from '../components/explorify/PinDetailModal';
 import { getCurrentLocation } from '../services/location';
-<<<<<<< HEAD
-=======
 import { fetchNearbyLandmarks } from '../services/supabase';
 import { getRecommendations, buildContext, buildPreferences } from '../utils/recommendations';
->>>>>>> 9c0402ae7bfc81f796e74f609929123b63ac0db5
 import useStore from '../store/useStore';
 
 const { height: H } = Dimensions.get('window');
@@ -493,13 +490,9 @@ const styles = StyleSheet.create({
   radiusRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
   radiusChip: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-<<<<<<< HEAD
     gap: 5, paddingVertical: 9, borderRadius: 12,
     borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.06)',
     backgroundColor: 'white', overflow: 'hidden',
-=======
-    gap: 5, paddingVertical: 8, borderRadius: 12, borderWidth: 1.5, overflow: 'hidden',
->>>>>>> 9c0402ae7bfc81f796e74f609929123b63ac0db5
   },
   radiusChipActive: { borderColor: 'transparent' },
   radiusChipText: { fontSize: 13, fontWeight: '600' },
@@ -572,18 +565,12 @@ const styles = StyleSheet.create({
   },
 
   cardBody: { flex: 1, minWidth: 0, gap: 3 },
-<<<<<<< HEAD
   cardName: { fontSize: 14, fontWeight: '700', color: '#1A1A2E' },
   cardCat: { fontSize: 11, color: '#9CA3AF', fontWeight: '500' },
   distTrack: {
     height: 3, backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: 2,
     overflow: 'hidden', marginTop: 8,
   },
-=======
-  cardName: { fontSize: 14, fontWeight: '700' },
-  cardCat: { fontSize: 11, fontWeight: '500' },
-  distTrack: { height: 3, borderRadius: 2, overflow: 'hidden', marginTop: 4 },
->>>>>>> 9c0402ae7bfc81f796e74f609929123b63ac0db5
   distFill: { height: '100%', borderRadius: 2 },
 
   reasonsRow: {
