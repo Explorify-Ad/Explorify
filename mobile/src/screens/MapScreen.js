@@ -364,7 +364,7 @@ export default function MapScreen() {
         style={[
           styles.fab,
           {
-            bottom: FAB_BOTTOM + 80, // Moved up to leave space for Next Best
+            bottom: FAB_BOTTOM,
             left: 16,
             backgroundColor: '#FF6B6B',
           },
@@ -375,7 +375,7 @@ export default function MapScreen() {
 
       {/* Next Best Local Guidance */}
       {refinedLandmarks.length > 0 && !showSheet && (
-        <View style={[styles.nextBestCard, { bottom: FAB_BOTTOM - 20 }]}>
+        <View style={[styles.nextBestCard, { bottom: FAB_BOTTOM }]}>
           <View style={{ flex: 1 }}>
             <Text style={styles.nextBestLabel}>
               {isNarrative ? 'Next Quest Step 🛡️' : 'Next Best 🚀'}
