@@ -7,7 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TopHUD } from '../components/explorify/TopHUD';
 import TomTomMap from '../components/explorify/TomTomMap';
@@ -20,6 +20,7 @@ import { buildPreferences } from '../utils/recommendations';
 
 export default function MapScreen() {
   const navigation = useNavigation();
+  const route = useRoute();
 
   const insets = useSafeAreaInsets();
   const { theme, setMode } = useTheme();
