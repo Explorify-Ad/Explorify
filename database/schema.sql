@@ -17,6 +17,7 @@ DROP TABLE IF EXISTS user_badges CASCADE;
 DROP TABLE IF EXISTS community_challenges CASCADE;
 DROP TABLE IF EXISTS user_quests CASCADE;
 DROP TABLE IF EXISTS quests CASCADE;
+DROP TABLE IF EXISTS expedition_landmarks CASCADE;
 DROP TABLE IF EXISTS expedition_members CASCADE;
 DROP TABLE IF EXISTS expeditions CASCADE;
 DROP TABLE IF EXISTS community_channels CASCADE;
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS users (
   display_name VARCHAR(100),
   preferences JSONB DEFAULT '{
     "walking_speed_kmh": 4.5,
+    "walk_pace_samples": [],
     "max_distance_km": 5,
     "preferred_categories": [],
     "category_dwell_multipliers": {},
@@ -224,53 +226,51 @@ CREATE POLICY "Enable insert for collections" ON collections FOR INSERT WITH CHE
 CREATE POLICY "Enable read for collections" ON collections FOR SELECT USING (true);
 CREATE POLICY "Enable join expedition" ON expedition_members FOR INSERT WITH CHECK (true);
 
--- ─── Seed Data (Dublin Enrichment) ──────────────────────────────────────────
+-- ─── Seed Data (Unified & Enriched) ──────────────────────────────────────────
 
 -- Communities
 INSERT INTO communities (id, name, description, theme) VALUES 
 ('c1000000-0000-0000-0000-000000000001', 'Dublin Heritage', 'Exploring the historical essence of Dublin', 'History'),
 ('c1000000-0000-0000-0000-000000000002', 'Culinary Trailblazers', 'Discovering the best bites around town', 'Food')
-ON CONFLICT DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO community_channels (community_id, name, slug) VALUES
 ('c1000000-0000-0000-0000-000000000001', 'General Discussion', 'general'),
 ('c1000000-0000-0000-0000-000000000001', 'Heritage Meetups', 'meetups'),
 ('c1000000-0000-0000-0000-000000000002', 'Best Burgers', 'burgers')
-ON CONFLICT DO NOTHING;
+ON CONFLICT (community_id, slug) DO NOTHING;
 
--- Landmarks (Rich Tags for Adaptivity)
-INSERT INTO landmarks (name, latitude, longitude, category, points, tier, is_indoor, accessibility_level, tags, description) VALUES 
-('Kilmainham Gaol', 53.3421, -6.3101, 'historical', 25, 'discovered', true, 3, ARRAY['iconic', 'popular', 'shelter', 'morning-vibe'], 'Former prison now a major museum and historic site.'),
-('Royal Hospital Kilmainham', 53.3431, -6.3000, 'architecture', 20, 'discovered', true, 4, ARRAY['landmark', 'scenic', 'art', 'accessible'], '17th-century building, now home to IMMA.'),
-('Phoenix Park Gate', 53.3485, -6.3050, 'nature', 10, 'public', false, 5, ARRAY['outdoor', 'accessible', 'nature', 'popular'], 'Entry point to one of the largest walled city parks in Europe.'),
-('War Memorial Gardens', 53.3475, -6.3200, 'historical', 15, 'public', false, 4, ARRAY['scenic', 'quiet', 'off-the-beaten-path', 'morning-vibe'], 'Lutyens-designed sunken gardens dedicated to soldiers.'),
-('Union 8', 53.3385, -6.3032, 'shopping', 10, 'public', true, 5, ARRAY['food', 'popular', 'interactive', 'fun'], 'Modern neighborhood bistro serving global fare.'),
-('IMMA', 53.3435, -6.3005, 'cultural', 20, 'discovered', true, 4, ARRAY['art', 'landmark', 'shelter', 'midday-shelter'], 'Irelands leading national institution for modern art.'),
-('The Patriot Inn', 53.3420, -6.3115, 'shopping', 15, 'public', true, 2, ARRAY['nightlife', 'off-the-beaten-path', 'historic'], 'Historic pub near the gaol with great atmosphere.'),
-('St. Judes Church', 53.3395, -6.3150, 'architecture', 15, 'public', true, 3, ARRAY['architecture', 'quiet', 'shelter', 'enclosed'], 'Victorian church with notable stone carvings.'),
-('Islandbridge Weir', 53.3465, -6.3120, 'nature', 10, 'public', false, 2, ARRAY['scenic', 'river', 'nature', 'golden-hour'], 'Scenic spot along the River Liffey.'),
-('Magpie Inn', 53.3400, -6.3120, 'shopping', 15, 'public', true, 3, ARRAY['food', 'nightlife', 'local-favourite'], 'Cozy craft beer and gastro pub.'),
-('Guinness Storehouse', 53.3418, -6.2867, 'historical', 35, 'discovered', true, 4, ARRAY['iconic', 'popular', 'landmark', 'must-see'], 'Irelands most visited tourist attraction.'),
-('Christ Church Cathedral', 53.3435, -6.2710, 'architecture', 25, 'discovered', true, 3, ARRAY['iconic', 'landmark', 'historic', 'morning-vibe'], 'Dublins oldest building, a spiritual heart of the city.'),
-('Teeling Distillery', 53.3375, -6.2766, 'shopping', 20, 'public', true, 4, ARRAY['food', 'interactive', 'popular'], 'The first new distillery in Dublin in over 125 years.');
+-- Landmarks (Full Unified Set)
+INSERT INTO landmarks (id, name, description, latitude, longitude, category, accessibility_level, is_indoor, points, avg_visit_duration_min, tier, tags) VALUES 
+('a0000001-0000-0000-0000-000000000001', 'Trinity College Dublin', 'Founded 1592. Home to the Book of Kells and the Long Room library.', 53.3454, -6.2593, 'historical', 4, false, 10, 45, 'public', ARRAY['iconic', 'popular', 'morning-vibe']),
+('a0000001-0000-0000-0000-000000000002', 'St. Patricks Cathedral', 'Irelands largest cathedral, founded in 1191.', 53.3391, -6.2706, 'historical', 5, true, 10, 30, 'public', ARRAY['landmark', 'shelter', 'historic']),
+('a0000001-0000-0000-0000-000000000003', 'Phoenix Park', 'One of the largest enclosed urban parks in Europe.', 53.3572, -6.3264, 'nature', 5, false, 10, 60, 'public', ARRAY['outdoor', 'nature', 'popular']),
+('a0000001-0000-0000-0000-000000000004', 'Hapenny Bridge', 'Iconic cast-iron pedestrian bridge over the Liffey.', 53.3466, -6.2625, 'landmark', 5, false, 10, 15, 'public', ARRAY['scenic', 'landmark', 'popular']),
+('a0000001-0000-0000-0000-000000000005', 'Temple Bar', 'Dublins cultural quarter — cobblestone streets and pubs.', 53.3452, -6.2644, 'shopping', 5, false, 10, 45, 'public', ARRAY['food', 'popular', 'nightlife']),
+('a0000001-0000-0000-0000-000000000006', 'Grafton Street', 'Pedestrianised premier shopping street.', 53.3403, -6.2590, 'shopping', 5, false, 10, 30, 'public', ARRAY['food', 'popular']),
+('a0000001-0000-0000-0000-000000000007', 'Guinness Storehouse', 'Visitor experience inside the St. Jamess Gate Brewery.', 53.3418, -6.2868, 'cultural', 4, true, 15, 90, 'public', ARRAY['iconic', 'popular']),
+('a0000001-0000-0000-0000-000000000008', 'Dublin Castle', 'Historic governement complex dating back to 1204.', 53.3430, -6.2673, 'historical', 4, false, 12, 40, 'public', ARRAY['landmark', 'historic']),
+('a0000001-0000-0000-0000-000000000009', 'National Gallery of Ireland', 'Irelands national art collection.', 53.3411, -6.2524, 'cultural', 5, true, 20, 75, 'discovered', ARRAY['art', 'shelter']),
+('a0000001-0000-0000-0000-000000000010', 'National Museum of Ireland', 'Celtic treasures and Bog Bodies.', 53.3402, -6.2537, 'historical', 5, true, 20, 60, 'discovered', ARRAY['historical', 'shelter']),
+('a0000001-0000-0000-0000-000000000011', 'Merrion Square', 'Georgian architecture surrounding a public park.', 53.3391, -6.2484, 'architecture', 4, false, 18, 30, 'discovered', ARRAY['scenic', 'art', 'quiet']),
+('a0000001-0000-0000-0000-000000000012', 'Howth Cliff Walk', 'Dramatic 6km coastal loop with views.', 53.3884, -6.0676, 'nature', 3, false, 22, 90, 'discovered', ARRAY['scenic', 'nature', 'outdoor']),
+('a0000001-0000-0000-0000-000000000013', 'Custom House', 'Neoclassical masterpiece by James Gandon.', 53.3477, -6.2508, 'architecture', 4, false, 18, 20, 'discovered', ARRAY['architecture', 'scenic']),
+('a0000001-0000-0000-0000-000000000014', 'Kilmainham Gaol', 'Victorian prison and site of the 1916 Rising executions.', 53.3417, -6.3101, 'historical', 3, true, 20, 60, 'discovered', ARRAY['iconic', 'shelter', 'morning-vibe']),
+('a0000001-0000-0000-0000-000000000015', 'Chester Beatty Library', 'World-class collection of manuscripts.', 53.3432, -6.2678, 'cultural', 5, true, 35, 60, 'hidden', ARRAY['art', 'landmark', 'quiet', 'morning-vibe']),
+('a0000001-0000-0000-0000-000000000016', 'Little Museum of Dublin', 'Story of Dublins 20th century.', 53.3396, -6.2560, 'cultural', 5, true, 30, 45, 'hidden', ARRAY['interactive', 'shelter']),
+('a0000001-0000-0000-0000-000000000017', 'St. Michans Church Vaults', 'Underground vaults with mummified remains.', 53.3479, -6.2742, 'historical', 2, true, 40, 45, 'hidden', ARRAY['historic', 'mystery']),
+('a0000001-0000-0000-0000-000000000018', 'Malahide Castle', '12th-century castle and gardens.', 53.4500, -6.1545, 'historical', 3, false, 45, 90, 'hidden', ARRAY['nature', 'historic']),
+('a0000001-0000-0000-0000-000000000019', 'Dun Laoghaire Pier', 'Victorian granite pier.', 53.2937, -6.1326, 'landmark', 4, false, 28, 45, 'hidden', ARRAY['scenic', 'nature']),
+('a0000001-0000-0000-0000-000000000020', 'Glasnevin Cemetery', 'Final resting place of Michael Collins.', 53.3659, -6.2705, 'historical', 3, false, 32, 60, 'hidden', ARRAY['historic', 'scenic'])
+ON CONFLICT (id) DO NOTHING;
 
--- Expeditions
-INSERT INTO expeditions (title, description, category, difficulty, reward_xp, required_count) VALUES 
-('Architecture Walk', 'Find 3 key architectural spots', 'architecture', 3, 600, 3),
-('Through the Ages', 'Find 5 historical landmarks', 'historical', 2, 550, 5)
-ON CONFLICT DO NOTHING;
+-- Seed Expedition
+INSERT INTO expeditions (id, title, description, category, difficulty, reward_xp, required_count, landmark_id, landmark_name, landmark_lat, landmark_lon, categories, is_narrative) VALUES 
+('e2000000-0000-0000-0000-000000000001', 'The Viking Trail', 'A sequential journey through Dublins Viking history', 'historical', 4, 900, 3, 'a0000001-0000-0000-0000-000000000001', 'Trinity College Dublin', 53.3454, -6.2593, ARRAY['history', 'architecture'], true)
+ON CONFLICT (id) DO NOTHING;
 
--- Seed Narrative Quest (The Viking Trail)
-INSERT INTO expeditions (id, title, description, category, difficulty, reward_xp, required_count, is_narrative) VALUES 
-('e2000000-0000-0000-0000-000000000001', 'The Viking Trail', 'A sequential journey through Dublins Viking history', 'historical', 4, 900, 3, true)
-ON CONFLICT DO NOTHING;
-
--- Map landmarks to The Viking Trail
--- 1. Christ Church Cathedral
--- 2. Guinness Storehouse (part of the narrative loop for this test)
--- 3. Dublin Castle (assuming it exists or I'll use another)
 INSERT INTO expedition_landmarks (expedition_id, landmark_id, step_number, story_fragment) VALUES
-('e2000000-0000-0000-0000-000000000001', (SELECT id FROM landmarks WHERE name = 'Christ Church Cathedral' LIMIT 1), 1, 'The vikings founded this site in 1030. They built a wooden church here, long before the stone cathedral you see today.'),
-('e2000000-0000-0000-0000-000000000001', (SELECT id FROM landmarks WHERE name = 'Guinness Storehouse' LIMIT 1), 2, 'The water for the black stuff comes from the mountains where the Vikings once roamed.'),
-('e2000000-0000-0000-0000-000000000001', (SELECT id FROM landmarks WHERE name = 'Kilmainham Gaol' LIMIT 1), 3, 'Even the outlaws of the Viking age would have feared the cages of Dublin.')
-ON CONFLICT DO NOTHING;
+('e2000000-0000-0000-0000-000000000001', 'a0000001-0000-0000-0000-000000000001', 1, 'The vikings founded this site in 1030.'),
+('e2000000-0000-0000-0000-000000000001', 'a0000001-0000-0000-0000-000000000002', 2, 'The water here comes from the mountains where Vikings once roamed.'),
+('e2000000-0000-0000-0000-000000000001', 'a0000001-0000-0000-0000-000000000014', 3, 'Even the outlaws of the Viking age would have feared these cages.')
+ON CONFLICT (expedition_id, step_number) DO NOTHING;
