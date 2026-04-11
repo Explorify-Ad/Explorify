@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Alert,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,7 +16,7 @@ import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { X, MapPin, Navigation, Lock, Zap, Star } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
-import { haversineDistance } from '../services/location';
+import { haversineDistance } from '../services/tomtom';
 import { CATEGORY_COLORS } from '../utils/theme';
 import { CATEGORY_ICONS } from '../components/explorify/PinDetailModal';
 import useStore from '../store/useStore';
