@@ -382,7 +382,6 @@ export default function NearbyScreen() {
                   <View style={[styles.distTrack, { backgroundColor: theme.border }]}>
                     <View style={[styles.distFill, { width: `${distPct * 100}%`, backgroundColor: locked ? '#9CA3AF' : catColor }]} />
                   </View>
-                  </View>
                 </View>
 
                 {/* Right meta */}
