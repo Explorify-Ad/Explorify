@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView, Alert } from 'react-native';
-import api from '../services/api';
 import useStore from '../store/useStore';
 import { ArrowLeft, Send } from 'lucide-react-native';
-import { fetchChannelMessages, sendChannelMessage, subscribeToChannelMessages, unsubscribe } from '../services/supabase';
+import { fetchCommunityChannels, fetchChannelMessages, sendChannelMessage, subscribeToChannelMessages, unsubscribe } from '../services/supabase';
 
 /**
  * CommunityChatScreen - Replaces GroupChatScreen.
@@ -22,15 +21,14 @@ export default function CommunityChatScreen({ route, navigation }) {
   
   const channelSubscription = useRef(null);
 
-  // 1. Load community details (channels)
+  // 1. Load community channels from Supabase
   useEffect(() => {
     const fetchDetails = async () => {
       try {
-        const response = await api.get(`/communities/${community_id}`);
-        const communityData = response.data.data;
-        setChannels(communityData.channels || []);
-        if (communityData.channels && communityData.channels.length > 0) {
-          setActiveChannel(communityData.channels[0]);
+        const channelData = await fetchCommunityChannels(community_id);
+        setChannels(channelData);
+        if (channelData.length > 0) {
+          setActiveChannel(channelData[0]);
         }
       } catch (err) {
         console.warn('Fetch community details error:', err);

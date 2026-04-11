@@ -7,21 +7,19 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TopHUD } from '../components/explorify/TopHUD';
 import TomTomMap from '../components/explorify/TomTomMap';
 import { useTheme } from '../context/ThemeContext';
 import { getCurrentLocation } from '../services/location';
-import { fetchActiveExpeditions } from '../services/supabase';
-import api from '../services/api';
+import { fetchAllLandmarks, fetchActiveExpeditions } from '../services/supabase';
 import useStore from '../store/useStore';
 import useBattery from '../hooks/useBattery';
 import { buildPreferences } from '../utils/recommendations';
 
 export default function MapScreen() {
   const navigation = useNavigation();
-  const route = useRoute();
 
   const insets = useSafeAreaInsets();
   const { theme, setMode } = useTheme();
@@ -39,7 +37,6 @@ export default function MapScreen() {
   const [expeditions, setExpeditions] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [context, setContext] = useState(null);
 
 
   const mapRef = useRef(null);
@@ -62,15 +59,13 @@ export default function MapScreen() {
     }
     setUserLocation(loc);
     try {
-      const fetchRecommendations = useStore.getState().fetchRecommendations;
-      const [results, exps, ctxResponse] = await Promise.all([
-        fetchRecommendations(loc.latitude, loc.longitude),
+      const [results, exps] = await Promise.all([
+        fetchAllLandmarks(loc.latitude, loc.longitude),
         fetchActiveExpeditions(loc.latitude, loc.longitude),
-        api.get('/landmarks/context', { params: { lat: loc.latitude, lng: loc.longitude } }).catch(() => ({ data: { data: null } }))
       ]);
       setLandmarks(results || []);
 
-      // Read store state at call time (Refactor branch improvement)
+      // Compute DNA match scores using store state at call time
       const { interests: ints, preferences: prefs, collection: col } = useStore.getState();
       const visitorType = prefs.visitor_type || 'tourist';
       const userPreferences = buildPreferences({ interests: ints, visitorType, collection: col });
@@ -80,7 +75,6 @@ export default function MapScreen() {
       const withMatch = (exps || []).map((exp) => {
         const expCats = exp.categories || [];
         if (!expCats.length) return { ...exp, dnaMatch: 50 };
-        
         let score = 0;
         expCats.forEach((cat) => {
           if (userCats.has(cat)) score += 40;
@@ -90,9 +84,8 @@ export default function MapScreen() {
         const raw = Math.round(score / expCats.length);
         return { ...exp, dnaMatch: Math.max(28, Math.min(97, raw + 30)) };
       });
-      
+
       setExpeditions(withMatch);
-      if (ctxResponse.data.data) setContext(ctxResponse.data.data);
     } catch (e) {
       console.warn('MapScreen data load error:', e?.message || e);
     } finally {

@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, MapPin, ChevronDown, Plus, Minus, Building2, Utensils, Trees, Landmark, Palette, Music } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import useStore from '../store/useStore';
-import api from '../services/api';
+import { createExpedition } from '../services/supabase';
 
 const CORAL = '#FF6B6B';
 
@@ -83,24 +83,18 @@ export default function CreateExpeditionScreen() {
         landmark_lon:  meetingPoint?.lon  ?? null,
       };
       
-      const response = await api.post('/expeditions', payload);
-      const exp = response.data.data;
-      
-      if (group_id) {
-        // If launched from group chat, go back to the chat so they can see the post
-        navigation.goBack();
-      } else {
-        // For standalone, navigate to the specific Expedition view/chat
-        navigation.replace('ExpeditionChat', {
-          expedition: {
-            id: exp.id,
-            title: exp.title,
-            memberCount: 1,
-            categories: exp.categories,
-            landmark: meetingPoint ? { name: meetingPoint.name } : null,
-          },
-        });
-      }
+      const { authUser, userName } = useStore.getState();
+      const exp = await createExpedition(authUser?.id, userName || 'Explorer', payload);
+
+      navigation.replace('ExpeditionChat', {
+        expedition: {
+          id: exp.id,
+          title: exp.title,
+          memberCount: 1,
+          categories: exp.categories,
+          landmark: meetingPoint ? { name: meetingPoint.name } : null,
+        },
+      });
     } catch (e) {
       console.warn('createExpedition API error:', e.message);
       setLaunching(false);

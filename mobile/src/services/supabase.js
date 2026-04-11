@@ -307,6 +307,16 @@ export async function fetchCommunities(userId = null) {
   return communities;
 }
 
+export async function fetchCommunityChannels(communityId) {
+  const { data, error } = await supabase
+    .from('community_channels')
+    .select('*')
+    .eq('community_id', communityId)
+    .order('name');
+  if (error) throw error;
+  return data || [];
+}
+
 export async function joinCommunity(communityId, userId) {
   const { error } = await supabase
     .from('community_members')
