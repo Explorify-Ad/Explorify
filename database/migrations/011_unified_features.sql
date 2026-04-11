@@ -39,6 +39,9 @@ ALTER TABLE expeditions
   ADD COLUMN IF NOT EXISTS is_narrative   BOOLEAN DEFAULT false;
 
 -- ─── B. New tables ────────────────────────────────────────────────────────────
+-- Note: communities, community_members, community_channels may already exist if
+-- migration 007_gamification_schema or 010_unify_social_gamification was previously
+-- run on this DB. CREATE TABLE IF NOT EXISTS handles that safely.
 
 -- Communities
 CREATE TABLE IF NOT EXISTS communities (
@@ -78,7 +81,22 @@ CREATE TABLE IF NOT EXISTS expedition_landmarks (
   PRIMARY KEY (expedition_id, step_number)
 );
 
--- Quests: per-user progress against an expedition template
+-- Quests: per-user progress against an expedition template.
+-- Guard: if a template-style quests table already exists (from migration 007_gamification_schema
+-- which had no user_id column), drop it first so we can create the correct schema.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'quests'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'quests' AND column_name = 'user_id'
+  ) THEN
+    DROP TABLE quests CASCADE;
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS quests (
   id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id        UUID NOT NULL,
@@ -214,7 +232,7 @@ WHERE title = 'The Viking Trail'
 INSERT INTO expedition_landmarks (expedition_id, landmark_id, step_number, story_fragment)
 SELECT
   e.id,
-  l.id,
+  steps.landmark_id,
   steps.step_number,
   steps.story_fragment
 FROM expeditions e
