@@ -20,6 +20,7 @@
 13. [Theme System](#13-theme-system)
 14. [Figure Placeholders (Eraser / Mermaid code)](#14-figure-placeholders)
 15. [Visualisation Scripts (Python)](#15-visualisation-scripts)
+16. [Unified Branch — v2 Feature Set](#16-unified-branch--v2-feature-set)
 
 ---
 
@@ -60,25 +61,38 @@ The app is fully offline-capable for read operations — the Zustand store is hy
 
 ### 3.1 Entity Relationship
 
-Seven tables across two schemas (`public` and Supabase's `auth`):
+Twelve tables across two schemas (`public` and Supabase's `auth`) after migration 011:
 
 ```
 auth.users          (managed by Supabase GoTrue)
        │
-       ├──< user_profiles   (1:1)
-       ├──< collections     (1:many)
-       ├──< expeditions     (1:many, as creator)
+       ├──< user_profiles      (1:1)
+       ├──< collections        (1:many)
+       ├──< expeditions        (1:many, as creator)
        ├──< expedition_members (1:many, as member)
-       └──< messages        (1:many, as sender)
+       ├──< messages           (1:many, as sender)
+       └──< quests             (1:many)
 
 landmarks
        │
-       └──< collections     (1:many, nullable FK)
+       └──< collections           (1:many, nullable FK)
+       └──< expedition_landmarks  (1:many)
        
 expeditions
        │
-       ├──< expedition_members (1:many)
-       └──< messages           (1:many)
+       ├──< expedition_members    (1:many)
+       ├──< messages              (1:many, via expedition_id)
+       ├──< expedition_landmarks  (1:many)
+       └──< quests                (1:many)
+
+communities
+       │
+       ├──< community_members  (1:many)
+       └──< community_channels (1:many)
+
+community_channels
+       │
+       └──< messages  (1:many, via channel_id)
 ```
 
 ### 3.2 Table Definitions
@@ -181,23 +195,97 @@ expeditions
 
 ---
 
-**`messages`**
+**`messages`** *(updated migration 011)*
 | Column | Type | Notes |
 |--------|------|-------|
 | id | UUID PK | |
 | expedition_id | UUID | Nullable; FK → expeditions(id) |
 | dm_peer_id | UUID | Nullable; FK → auth.users(id) |
+| channel_id | UUID | Nullable; FK → community_channels(id) — added migration 011 |
 | sender_id | UUID | FK → auth.users(id) |
 | sender_name | TEXT | |
 | content | TEXT | |
 | type | TEXT | CHECK IN ('text','check_in','system','vote') |
 | metadata | JSONB | Default `{}` |
 | created_at | TIMESTAMPTZ | |
-| CHECK | XOR constraint | Either expedition_id IS NOT NULL OR dm_peer_id IS NOT NULL |
+| CHECK | 3-way XOR | Exactly one of expedition_id / dm_peer_id / channel_id IS NOT NULL |
+
+*Index:* `idx_messages_channel ON messages(channel_id, created_at)`
 
 `REPLICA IDENTITY FULL` — required for Supabase Realtime to publish complete row data on INSERT.
 
-*RLS:* Expedition messages visible only to members of that expedition. DM messages visible only to sender and recipient.
+*RLS:* Expedition messages visible only to members. DM messages visible only to sender and recipient. Channel messages visible to all community members.
+
+---
+
+**`communities`** *(migration 011)*
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| name | TEXT | NOT NULL |
+| description | TEXT | |
+| theme | TEXT | |
+| avatar_url | TEXT | |
+| created_at | TIMESTAMPTZ | |
+
+---
+
+**`community_members`** *(migration 011)*
+| Column | Type | Notes |
+|--------|------|-------|
+| community_id | UUID | FK → communities(id) ON DELETE CASCADE |
+| user_id | UUID | FK → auth.users(id) ON DELETE CASCADE |
+| joined_at | TIMESTAMPTZ | |
+| PRIMARY KEY | (community_id, user_id) | |
+
+---
+
+**`community_channels`** *(migration 011)*
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| community_id | UUID | FK → communities(id) ON DELETE CASCADE |
+| name | TEXT | NOT NULL |
+| slug | TEXT | |
+| type | TEXT | 'text' / 'announcements' |
+| created_at | TIMESTAMPTZ | |
+
+---
+
+**`expedition_landmarks`** *(migration 011)*
+| Column | Type | Notes |
+|--------|------|-------|
+| expedition_id | UUID | FK → expeditions(id) ON DELETE CASCADE |
+| landmark_id | UUID | FK → landmarks(id) ON DELETE CASCADE |
+| step_number | INT | Sequence position |
+| story_fragment | TEXT | Narrative text for this step |
+| PRIMARY KEY | (expedition_id, landmark_id) | |
+
+---
+
+**`quests`** *(migration 011)*
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID | FK → auth.users(id) ON DELETE CASCADE |
+| expedition_id | UUID | FK → expeditions(id) ON DELETE SET NULL, nullable |
+| status | TEXT | CHECK IN ('active','completed','claimed') |
+| progress_count | INT | Default 0 |
+| completed_at | TIMESTAMPTZ | nullable |
+
+*RLS:* All operations restricted to `auth.uid() = user_id`
+
+---
+
+**New columns added to existing tables (migration 011):**
+
+`users`: `detail_level TEXT DEFAULT 'overview'`, `language_pref TEXT DEFAULT 'en'`, `onboarding_group_context TEXT DEFAULT 'solo'`, `drift_detected_at TIMESTAMPTZ`, `drift_from_category TEXT`, `drift_to_category TEXT`
+
+`landmarks`: `tags TEXT[] DEFAULT '{}'`
+
+`collections`: `context JSONB DEFAULT '{}'`, `checked_in_at TIMESTAMPTZ DEFAULT NOW()`
+
+`expeditions`: `description TEXT`, `category VARCHAR(50)`, `difficulty INTEGER DEFAULT 1`, `reward_xp INTEGER DEFAULT 500`, `required_count INTEGER DEFAULT 3`, `is_narrative BOOLEAN DEFAULT false`
 
 ---
 
@@ -330,6 +418,27 @@ Login / session restore
 | `subscribeToMessages(expeditionId, cb)` | Realtime channel on INSERT | Returns channel handle |
 | `subscribeToDMs(userId, cb)` | Realtime channel on INSERT dm_peer_id=userId | |
 | `unsubscribe(channel)` | supabase.removeChannel | |
+| `fetchCommunityChannels(communityId)` | SELECT community_channels WHERE community_id | Ordered by name |
+| `fetchChannelMessages(channelId)` | SELECT messages WHERE channel_id | Ordered by created_at |
+| `sendChannelMessage(channelId, userId, name, content)` | INSERT messages with channel_id | Returns inserted row |
+| `subscribeToChannelMessages(channelId, cb)` | Realtime channel on INSERT for channel_id | Returns channel handle |
+
+**`normaliseLandmark` output shape (updated):**
+
+| Field | Source | Notes |
+|-------|--------|-------|
+| `id` | row.id | |
+| `name` | row.name | |
+| `lat` / `lon` | parsed floats | Internal use |
+| `latitude` / `longitude` | same as lat/lon | Compatibility alias |
+| `category` | `APP_CATEGORIES` pass-through or `CATEGORY_MAP[lower]` | Handles all 6 app categories |
+| `tier` | row.tier \| 'public' | |
+| `description` | row.description | |
+| `points` | row.points \| 10 | |
+| `avg_visit_duration_min` | row.avg_visit_duration_min \| 30 | Used by route builder |
+| `is_indoor` | row.is_indoor \| false | Used for weather-aware routing |
+| `accessibility_level` | row.accessibility_level \| 1 | Used for company-type routing |
+| `distance` | haversine(userLat, userLon, lat, lon) | metres, null if no user location |
 
 ### 6.2 `tomtom.js` — Function Inventory
 
@@ -539,30 +648,58 @@ Touch disambiguation: `touchstart` records start position; `touchmove` sets a `m
 
 ## 10. Route Builder Pipeline
 
-### 10.1 Seven-Step Pipeline
+The route builder runs entirely on-device — no backend call. It replaces the former `api.post('/routes/generate')` with a local greedy algorithm using Supabase data.
+
+### 10.1 Eight-Step Pipeline
 
 ```
-Step 1  Location         getCurrentLocation() or expo-location watch
+Step 1  Location         getCurrentLocation() or expo-location fallback
 Step 2  Battery cap      getAdjustedBudget(timeBudget) → adjustedBudget
-Step 3  Data fetch       Promise.all([fetchAllLandmarks, fetchUserDwellTimes])
-Step 4  Category filter  pool = landmarks.filter(lm => selectedCats.includes(lm.category))
-Step 5  Scoring          getRecommendations(pool, preferences, context) → scored[]
-Step 6  Dwell overlay    scored.map(lm => { avg_visit_duration_min: dwellTimes[cat] ?? default })
-Step 7  Route build      buildRoute(coords, augmented, adjustedBudget) → nearest-neighbor
+Step 3  Data fetch       fetchAllLandmarks(lat, lon) from Supabase
+Step 4  Filter           category ∩ selectedCats + getUnlockedTiers() + weather (rainy → no outdoor public)
+Step 5  Score            For each landmark:
+                           score = 1000 − distM×0.1
+                           + 200 if unvisited
+                           + 150 if rainy + is_indoor
+                           + 100 if family + accessibility_level≥4
+Step 6  Greedy pick      Sort by score desc; add landmark if usedMin + totalMin ≤ adjustedBudget + 10 grace
+                         Stop when 85% of budget consumed
+Step 7  Sequential walk  Recompute walk times stop-to-stop:
+                           route[0]._walkMin = walk(origin → stop0)
+                           route[i]._walkMin = walk(stop[i-1] → stop[i])
+Step 8  Stats            totalMin = Σ (_walkMin + _visitMin); totalXP = Σ points×15
 ```
 
-### 10.2 Route Algorithm (`buildRoute`)
+### 10.2 Company Type Signals
 
-Nearest-neighbor greedy algorithm:
-1. Start at user location
-2. Greedily pick the closest unvisited landmark from remaining pool
-3. Add walk time (`haversineDistance / 4500 m per hour × 60`) + visit time (`avg_visit_duration_min`)
-4. Continue until adding any remaining landmark would exceed the time budget
-5. Return ordered array
+| Company Type | Extra Score Boost |
+|--------------|------------------|
+| `family` | +100 if `accessibility_level ≥ 4` |
+| `elderly` | Same as family |
+| `solo` / `date` / `friends` | No extra boost |
 
-Walk speed: **4.5 km/h**
+### 10.3 Walk Speed
 
-### 10.3 Apple Maps Deep-Link
+Default: **`getWalkPaceKmh()`** from Zustand store (derived from `walkPaceSamples`).  
+Fallback when < 2 pace samples recorded: **4.5 km/h**
+
+```js
+walkMinutes(distanceMeters, walkSpeedKmh) = round(distanceMeters / 1000 / walkSpeedKmh × 60)
+```
+
+### 10.4 Scrutability — "Why This Route?" Panel
+
+`activeAdaptations` array built after route generation:
+
+| Adaptation key | Trigger | UI label |
+|----------------|---------|---------|
+| `indoor_priority` | `weather.isRaining === true` | Indoor venues prioritised |
+| `battery_cap` | `getAdjustedBudget().budget < timeBudget` | Route shortened for battery |
+| `accessibility_boost` | `companyType === 'family'` | Accessible venues boosted |
+
+The `AdaptationsPanel` component renders these as an expandable "Why this route?" card above the stop list.
+
+### 10.5 Apple Maps Deep-Link
 
 ```
 http://maps.apple.com/?saddr=<userLat>,<userLon>&daddr=<lat1>,<lon1>/<lat2>,<lon2>/...
@@ -1559,4 +1696,229 @@ python viz_08_screen_dependencies.py
 
 ---
 
-*End of Technical Report — Explorify v1.0*
+## 16. Unified Branch — v2 Feature Set
+
+This section documents all additions and architectural changes introduced in `feature/unified`, which merges `feature/refactor` (stable DB + mobile) with `feature/refactor-new` (new backend services and screens).
+
+---
+
+### 16.1 Branch Merge Strategy
+
+Two branches were merged into `feature/unified`:
+
+| Branch | Role |
+|--------|------|
+| `feature/refactor` | Stable base — correct Supabase connection, working mobile |
+| `feature/refactor-new` | New features — LLM services, communities, channels, quests, new screens |
+
+**Conflict resolution rules:**
+
+| File | Resolution |
+|------|------------|
+| `backend/src/config/database.js` | Keep `feature/refactor` — correct pool (20), correct SSL |
+| `database/schema.sql` | Keep `feature/refactor` — new objects live in migration 011 |
+| `mobile/src/services/api.js` | Keep `feature/refactor` — no phantom URL changes |
+| All other conflicts | Take `feature/refactor-new` |
+
+The `feature/refactor-new` branch had been developed against a **separate Supabase project** (different DATABASE_URL) and its `schema.sql` started with `DROP TABLE … CASCADE`. Rather than running those destructive migrations, all new DB objects were expressed as a single additive migration: `database/migrations/011_unified_features.sql`.
+
+---
+
+### 16.2 Local-First Architecture (API Elimination)
+
+`feature/refactor-new` contained screens and store actions that called a REST backend at `EXPO_PUBLIC_API_URL || 'http://localhost:3000/api'`. Since that backend is optional and `localhost` is unreachable from a physical device, all 6 phantom API call sites were replaced with direct Supabase calls or on-device computation:
+
+| Old call | Replacement |
+|----------|-------------|
+| `api.post('/profile/daily-challenge')` | Deterministic day-of-year seed using user interests |
+| `api.get('/quests')` | Local computation: map `QUESTS` array, count `collection` entries per category |
+| `api.post('/quests/${id}/claim')` | Local XP award via `getQuestXP()` / `getQuestTarget()` |
+| `api.post('/profile/drift-check')` | Removed (fire-and-forget in `syncFromSupabase`, now silent no-op) |
+| `api.post('/routes/generate')` | On-device greedy algorithm (see §10) |
+| `api.get('/communities/${id}')` | `fetchCommunityChannels()` from `supabase.js` |
+| `api.get('/landmarks/context')` | Removed; context computed locally from `new Date().getHours()` |
+| `api.post('/landmarks/describe')` | Silent no-op; AI description shown only when backend is running |
+| `api.get('/landmarks')` in `useLandmarks` hook | `fetchAllLandmarks()` from `supabase.js` |
+| `weather.js` — `api.get('/landmarks/context')` | Direct OpenWeatherMap REST call; neutral stub when key absent |
+
+`fetchRefinement` (ProfileScreen "Refine My Taste") still uses a dynamic `api.js` import inside a try/catch — it silently no-ops when the backend is unavailable, and functions when `backend/` is running with `GROQ_API_KEY`.
+
+---
+
+### 16.3 New Backend Services
+
+All services live in `backend/src/services/`.
+
+#### `llmService.js` — Groq LLM Integration
+
+Uses **Groq API** (`llama-3.1-8b-instant` or similar) for three features:
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `getPersonalisedDescription(landmarkId, userProfile)` | `POST /landmarks/describe` | Generates a personalised landmark description tailored to visitor type, interests, language |
+| `getConversationalRefinement(userId, recentVisits)` | `POST /profile/refinement` | Returns a conversational "insight" message about the user's taste evolution |
+| `getDriftNarrative(userId, driftInfo)` | Internal (drift detection) | Generates a narrative explaining detected interest drift |
+
+**Lazy initialisation pattern** — the Groq client is created on first use, not at module load time. This prevents server crash when `GROQ_API_KEY` is missing:
+
+```js
+let _groq = null;
+function getGroq() {
+  if (!_groq) {
+    if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY is not set.');
+    _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  }
+  return _groq;
+}
+```
+
+#### `driftDetectionService.js`
+
+Detects when a user's category preferences have shifted significantly from their baseline interests.
+
+```
+Input: userId, recentVisits (last N check-ins)
+Compute: frequency distribution of categories in recent visits
+Compare: against user's declared interests[] from user_profiles
+If dominant recent category ∉ interests AND visit count ≥ threshold:
+  → mark drift_detected_at, drift_from_category, drift_to_category in users table
+  → trigger LLM narrative (optional)
+```
+
+#### `communityService.js`
+
+CRUD for communities and membership management. Wraps the `communities`, `community_members`, and `community_channels` tables.
+
+#### `expeditionService.js`
+
+Extended expedition logic beyond the basic `supabase.js` functions: narrative expedition steps, `expedition_landmarks` population, step progress tracking.
+
+#### `questService.js`
+
+Server-side quest evaluation (used when backend is running). Client-side equivalent is the local computation in `useStore.fetchQuests`.
+
+---
+
+### 16.4 New Mobile Screens
+
+| Screen | Description |
+|--------|-------------|
+| `CommunityChatScreen` | Multi-channel community chat. Loads channels via `fetchCommunityChannels`, subscribes to Realtime per channel. Supports channel switching via horizontal scroll bar. |
+| `CommunityScreen` | Community discovery and detail view. Lists communities from Supabase, shows member count and description. |
+| `DirectChatScreen` | 1:1 direct message conversation. Uses `sendDirectMessage` / `fetchDirectMessages` / `subscribeToDMs`. |
+| `DirectMessagesScreen` | DM inbox — lists all recent DM threads with unread indicators. |
+| `QuestScreen` | Individual quest detail. Shows progress, narrative description, and claim button. |
+
+---
+
+### 16.5 New Navigation Entries
+
+The tab navigator and stack navigator were updated with:
+
+| Route name | Type | Entry point |
+|------------|------|-------------|
+| `Community` | Stack | From HomeScreen / CommunitiesTab |
+| `CommunityChat` | Stack | From CommunityScreen |
+| `DirectMessages` | Tab or Stack | From ProfileScreen / HomeScreen |
+| `DirectChat` | Stack | From DirectMessagesScreen |
+| `Quest` | Stack | From QuestsScreen |
+
+---
+
+### 16.6 useStore — New State and Actions
+
+**New persisted fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `quests` | Quest[] | Array of quests with computed `progress_count` |
+| `dailyChallenge` | object | `{ category, title, target, progress, xpBonus, emoji, achieved, claimed }` |
+| `dailyClaimed` | Record\<string, boolean\> | ISO date → claimed flag |
+| `questBonusXP` | number | Cumulative XP from completed quests and daily challenges |
+| `completedQuests` | string[] | Quest IDs whose XP was claimed |
+| `walkPaceSamples` | number[] | Recorded walking speeds (km/h) from check-in GPS delta |
+| `preferences` | object | `{ visitor_type, detail_level, language_pref, walking_pace }` |
+| `refinementMessage` | string\|null | Last AI insight message from backend |
+
+**New computed getters:**
+
+| Getter | Formula |
+|--------|---------|
+| `getWalkPaceKmh()` | Average of `walkPaceSamples`; fallback 4.5 km/h |
+| `getWalkPaceLabel()` | 'slow' / 'moderate' / 'fast' based on km/h |
+| `getActiveQuest()` | Quest matching `activeQuestId`; computes adaptive target |
+| `getSuggestedQuests()` | Top 3 QUESTS by interest-match score |
+
+**New actions:**
+
+| Action | Behaviour |
+|--------|-----------|
+| `fetchQuests()` | Local: maps QUESTS constant, counts `collection` per category as `progress_count` |
+| `fetchDailyChallenge()` | Local: picks category via `dayOfYear % cats.length`; sets `dailyChallenge` |
+| `completeQuest(questId)` | Local: awards XP, appends to `completedQuests`, clears `activeQuestId` |
+| `claimDailyChallenge()` | Local: awards 100 XP bonus, marks today in `dailyClaimed` |
+| `fetchRefinement()` | Backend-optional: `POST /profile/refinement`; silent no-op on network error |
+| `recordWalkSample(kmh)` | Appends to `walkPaceSamples` (capped at 20 samples, outliers > 10 km/h dropped) |
+
+---
+
+### 16.7 Weather Service — Direct API
+
+`mobile/src/services/weather.js` was rewritten to call **OpenWeatherMap** directly instead of proxying through the backend:
+
+```
+GET https://api.openweathermap.org/data/2.5/weather
+  ?lat=<lat>&lon=<lon>&appid=<EXPO_PUBLIC_OPENWEATHERMAP_API_KEY>&units=metric
+```
+
+When `EXPO_PUBLIC_OPENWEATHERMAP_API_KEY` is not set, a neutral stub is returned (`{ condition: 'clear', isClear: true, isWindy: false, temperature: 15 }`).
+
+Required `.env` entry: `EXPO_PUBLIC_OPENWEATHERMAP_API_KEY=<key>` (free tier at openweathermap.org).
+
+---
+
+### 16.8 Community Chat — Real-Time Architecture
+
+Community chat uses the same Supabase Realtime transport as expedition chat, but filtered by `channel_id` instead of `expedition_id`:
+
+```
+Channel name: community_channel_messages:<channelId>
+Event:        postgres_changes INSERT on messages
+Filter:       channel_id=eq.<channelId>
+```
+
+Channel subscription is managed in `CommunityChatScreen` via `channelSubscription` ref. When the user switches channels, the previous subscription is torn down (`unsubscribe()`) before the new one is created.
+
+---
+
+### 16.9 Bug Fixes Applied in Unified Branch
+
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| Route Builder — NaN minutes | `normaliseLandmark` exposed `lat`/`lon` but RouteBuilderScreen read `lm.latitude`/`lm.longitude` (undefined) | Added `latitude`/`longitude` aliases in `normaliseLandmark`; walk times recomputed sequentially |
+| Route Builder — filter shows all landmarks | `CATEGORY_MAP` only covered 7 aliases; DB values like `'food'`, `'nightlife'` fell back to `'Architecture'` | Expanded map to all 6 app categories with case-insensitive lookup |
+| MapScreen — expedition FAB floating mid-air | FAB `bottom` set to `FAB_BOTTOM + 80 = 162px` | Changed to `FAB_BOTTOM = 82px` (same level as radar FAB) |
+| NearbyScreen — JSX crash | Stray extra `</View>` at line 385 re-introduced by merge | Removed extra tag |
+| LandmarkDetailScreen — `haversineDistance is not a function` | Imported from `../services/location` (not present there) instead of `../services/tomtom` | Fixed import path |
+| LandmarkDetailScreen — `ActivityIndicator` undefined | Missing from React Native destructured import | Added to import block |
+| Backend crash on start — `GROQ_API_KEY missing` | Groq client instantiated at module load time | Lazy `getGroq()` initialiser |
+| `column "user_id" does not exist` (migration 011) | `quests` table pre-existed from `007_gamification_schema` without `user_id`; `CREATE TABLE IF NOT EXISTS` was a no-op; RLS policy then failed | DO $ block checks and drops old `quests` schema before recreating |
+
+---
+
+### 16.10 Environment Variables Summary
+
+| Variable | File | Required for |
+|----------|------|-------------|
+| `EXPO_PUBLIC_SUPABASE_URL` | `mobile/.env` | All Supabase operations |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | `mobile/.env` | All Supabase operations |
+| `EXPO_PUBLIC_OPENWEATHERMAP_API_KEY` | `mobile/.env` | Live weather in Route Builder / Map |
+| `EXPO_PUBLIC_API_URL` | `mobile/.env` | Backend features (AI insight, landmark descriptions). Set to `http://<LAN_IP>:3000/api` when running locally |
+| `GROQ_API_KEY` | `backend/.env` | LLM features (landmark describe, profile refinement, drift narrative) |
+| `DATABASE_URL` | `backend/.env` | Backend DB queries (Node.js pool) |
+| `SUPABASE_URL` | `backend/.env` | Backend Supabase admin client |
+| `SUPABASE_SERVICE_ROLE_KEY` | `backend/.env` | Backend service-level DB operations |
+
+---
+
+*End of Technical Report — Explorify v2.0*
