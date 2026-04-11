@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import api from '../services/api';
+import { fetchAllLandmarks } from '../services/supabase';
 import useStore from '../store/useStore';
 
 /**
@@ -17,10 +17,9 @@ export default function useLandmarks(filters = {}) {
 
     const fetchLandmarks = async () => {
       try {
-        // TODO: Add error handling
-        const response = await api.get('/landmarks', { params: filters });
+        const data = await fetchAllLandmarks();
         if (isMounted) {
-          setLandmarks(response.data.data);
+          setLandmarks(data);
           setLoading(false);
         }
       } catch (err) {

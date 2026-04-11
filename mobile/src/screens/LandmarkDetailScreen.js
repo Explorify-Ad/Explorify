@@ -21,7 +21,6 @@ import { CATEGORY_COLORS } from '../utils/theme';
 import { CATEGORY_ICONS } from '../components/explorify/PinDetailModal';
 import useStore from '../store/useStore';
 import FeedbackModal from '../components/FeedbackModal';
-import api from '../services/api';
 
 const { width: W, height: H } = Dimensions.get('window');
 const CHECK_IN_RANGE = 100;
@@ -107,24 +106,8 @@ export default function LandmarkDetailScreen() {
     };
     startTracking();
 
-    // Fetch AI description (Phase 8.1)
-    if (landmark?.id) {
-      const state = useStore.getState();
-      setLoadingAI(true);
-      api.post('/landmarks/describe', {
-        landmark_id: landmark.id,
-        user_profile: {
-          visitor_type: state.preferences?.visitor_type || 'tourist',
-          interests: state.interests || [],
-          level: state.getLevel(),
-          detail_level: state.preferences?.detail_level || 'overview',
-          language_pref: state.preferences?.language_pref || 'en'
-        }
-      })
-      .then(res => setPersonalisedDesc(res.data.description))
-      .catch(() => {})
-      .finally(() => setLoadingAI(false));
-    }
+    // AI description: no-op when backend is unavailable
+    setLoadingAI(false);
 
     return () => { sub?.remove(); setMode('exploration'); };
   }, []);

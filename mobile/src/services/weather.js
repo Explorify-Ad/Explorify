@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // TODO: Add API key to .env
-const API_KEY = process.env.EXPO_PUBLIC_OPENWEATHERMAP_API_KEY || 'your-api-key';
+const API_KEY = process.env.EXPO_PUBLIC_OPENWEATHERMAP_API_KEY || '';
 const BASE_URL = 'https://api.openweathermap.org/data/2.5';
 
 /**
@@ -11,18 +11,32 @@ const BASE_URL = 'https://api.openweathermap.org/data/2.5';
  * @returns {Promise<object>} Weather data
  */
 export const getCurrentWeather = async (lat, lon) => {
-  const api = (await import('./api')).default;
-  
-  const response = await api.get('/landmarks/context', {
-    params: { lat, lng: lon },
+  if (!API_KEY || API_KEY === 'your-api-key' || API_KEY === '') {
+    // No key configured — return a neutral weather stub so callers don't crash
+    return {
+      condition: 'clear',
+      description: 'clear sky',
+      temperature: 15,
+      windSpeed: 5,
+      isWindy: false,
+      isClear: true,
+    };
+  }
+
+  const response = await axios.get(`${BASE_URL}/weather`, {
+    params: { lat, lon, appid: API_KEY, units: 'metric' },
   });
 
-  const weather = response.data.data.weather;
-  
-  // Map backend format to component expectations if needed
+  const w = response.data;
+  const description = w.weather?.[0]?.description || 'clear sky';
+  const windSpeed = w.wind?.speed || 0;
+
   return {
-    ...weather,
-    isWindy: weather.windSpeed > 20, // Match backend threshold
-    isClear: weather.description.includes('clear') || weather.description.includes('clouds'), 
+    condition: w.weather?.[0]?.main?.toLowerCase() || 'clear',
+    description,
+    temperature: Math.round(w.main?.temp ?? 15),
+    windSpeed,
+    isWindy: windSpeed > 20,
+    isClear: description.includes('clear') || description.includes('clouds'),
   };
 };
