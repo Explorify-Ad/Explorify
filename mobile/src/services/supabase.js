@@ -13,16 +13,26 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
-// Maps Supabase category names → app category names
+// Maps Supabase category names → app display category names (case-insensitive lookup)
 const CATEGORY_MAP = {
+  // explicit DB value aliases
   historical: 'History',
   cultural: 'Art',
-  nature: 'Nature',
   shopping: 'Food',
   sports: 'Architecture',
-  architecture: 'Architecture',
   landmark: 'Architecture',
+  // direct matches (lowercase)
+  architecture: 'Architecture',
+  food: 'Food',
+  nature: 'Nature',
+  history: 'History',
+  art: 'Art',
+  nightlife: 'Nightlife',
 };
+
+// Valid app category names (title-case). If the DB already stores one of these,
+// pass it through unchanged.
+const APP_CATEGORIES = new Set(['Architecture', 'Food', 'Nature', 'History', 'Art', 'Nightlife']);
 
 // Normalise a Supabase landmark row into the shape the app expects
 function normaliseLandmark(row, userLat, userLon) {
@@ -32,16 +42,29 @@ function normaliseLandmark(row, userLat, userLon) {
   const distance = userLat != null
     ? Math.round(haversineDistance(userLat, userLon, lat, lon))
     : null;
+
+  // Resolve category: direct match → case-insensitive map → default
+  const rawCat = row.category || '';
+  const category = APP_CATEGORIES.has(rawCat)
+    ? rawCat
+    : CATEGORY_MAP[rawCat.toLowerCase()] || 'Architecture';
+
   return {
     id: row.id,
     name: row.name,
+    // expose as both lat/lon (internal) and latitude/longitude (compat)
     lat,
     lon,
-    category: CATEGORY_MAP[row.category] || 'Architecture',
+    latitude: lat,
+    longitude: lon,
+    category,
     tier: row.tier || 'public',
-    address: '',
+    address: row.address || '',
     description: row.description || '',
     points: row.points || 10,
+    avg_visit_duration_min: row.avg_visit_duration_min || 30,
+    is_indoor: row.is_indoor || false,
+    accessibility_level: row.accessibility_level || 1,
     distance,
     collected: false,
   };

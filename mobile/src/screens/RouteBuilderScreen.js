@@ -333,7 +333,22 @@ export default function RouteBuilderScreen({ route: navigationRoute, navigation 
         return;
       }
 
-      // 5. Build adaptations list for the UI badges
+      // 5. Recompute sequential walk times (origin → stop0, stop0 → stop1, …)
+      route[0]._walkMin = walkMinutes(
+        haversineDistance(coords.latitude, coords.longitude, route[0].lat, route[0].lon),
+        walkSpeed
+      );
+      for (let i = 1; i < route.length; i++) {
+        const prev = route[i - 1];
+        const curr = route[i];
+        route[i]._walkMin = walkMinutes(
+          haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon),
+          walkSpeed
+        );
+      }
+      const totalMin = route.reduce((sum, lm) => sum + lm._walkMin + lm._visitMin, 0);
+
+      // 6. Build adaptations list for the UI badges
       const adaptations = [];
       if (isRaining) adaptations.push('indoor_priority');
       if (getAdjustedBudget(timeBudget).budget < timeBudget) adaptations.push('battery_cap');
@@ -345,7 +360,7 @@ export default function RouteBuilderScreen({ route: navigationRoute, navigation 
 
       let totalXP = 0;
       route.forEach(l => totalXP += (l.points || 10) * 15);
-      setRouteStats({ stops: route.length, totalMin: usedMin, totalXP });
+      setRouteStats({ stops: route.length, totalMin, totalXP });
 
     } catch (err) {
       console.error(err);
@@ -504,7 +519,7 @@ export default function RouteBuilderScreen({ route: navigationRoute, navigation 
                   key={lm.id}
                   index={i}
                   landmark={lm}
-                  walkMin={lm.estimated_arrival_min || 0}
+                  walkMin={lm._walkMin || 0}
                   isFirst={i === 0}
                 />
               ))}
