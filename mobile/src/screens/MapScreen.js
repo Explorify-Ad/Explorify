@@ -39,6 +39,11 @@ export default function MapScreen() {
   const [userLocation, setUserLocation] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Local context derived from time-of-day — no API needed
+  const hour = new Date().getHours();
+  const timeSlot = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
+  const context = { weather: null, timeSlot };
+
 
   const mapRef = useRef(null);
 
