@@ -376,107 +376,6 @@ const useStore = create((set, get) => ({
   getCurrentXP: () => get().getTotalXP() % XP_PER_LEVEL,
   getStreak: () => computeStreak(get().collection),
 
-  },
-  getActiveQuest: () => {
-    const { activeQuestId, collection, interests, completedQuests } = get();
-    const catMap = {
-      architecture: 'q_arch', food: 'q_food', history: 'q_history',
-      art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
-    };
-    const preferredId = activeQuestId ?? catMap[interests[0]] ?? 'q_arch';
-    const quest =
-      QUESTS.find((q) => q.id === preferredId && !completedQuests.includes(q.id)) ||
-      QUESTS.find((q) => !completedQuests.includes(q.id)) ||
-      QUESTS[0];
-
-    // Adaptive target scales with level
-    const level = computeLevel(get().getTotalXP());
-    const target = getQuestTarget(level);
-    const xp = getQuestXP(quest, target);
-    const progress = collection.filter((c) => c.category === quest.category).length;
-    return { ...quest, target, xp, progress: Math.min(progress, target) };
-  },
-
-  getSuggestedQuests: () => {
-    const { activeQuestId, interests, collection, completedQuests, visitorType } = get();
-    const catMap = {
-      architecture: 'q_arch', food: 'q_food', history: 'q_history',
-      art: 'q_art', nature: 'q_nature', nightlife: 'q_night',
-    };
-
-    // Count visits per category for novelty sorting
-    const counts = {};
-    collection.forEach((c) => { counts[c.category] = (counts[c.category] || 0) + 1; });
-
-    const sorted = [...QUESTS].sort((a, b) => {
-      if (visitorType === 'local') {
-        // Locals: prefer least-explored categories (novelty-first)
-        const aCnt = counts[a.category] || 0;
-        const bCnt = counts[b.category] || 0;
-        return aCnt - bCnt;
-      }
-      // Tourists: prefer stated interests
-      const preferred = interests.map((i) => catMap[i]).filter(Boolean);
-      const aP = preferred.indexOf(a.id);
-      const bP = preferred.indexOf(b.id);
-      return (aP === -1 ? 99 : aP) - (bP === -1 ? 99 : bP);
-    });
-
-    const level = computeLevel(get().getTotalXP());
-    const target = getQuestTarget(level);
-
-    return sorted
-      .filter((q) => q.id !== activeQuestId && !completedQuests.includes(q.id))
-      .slice(0, 3)
-      .map((q) => ({
-        ...q,
-        target,
-        xp: getQuestXP(q, target),
-        progress: collection.filter((c) => c.category === q.category).length,
-      }));
-  },
-
-  /**
-   * Returns today's daily challenge, seeded by date + interests.
-   * Resets automatically at midnight.
-   */
-  getDailyChallenge: () => {
-    const { interests, collection, visitorType, dailyClaimed } = get();
-    const catMap = {
-      architecture: 'Architecture', food: 'Food', history: 'History',
-      art: 'Art', nature: 'Nature', nightlife: 'Nightlife',
-    };
-    const cats = interests.map((i) => catMap[i]).filter(Boolean);
-    if (!cats.length) return null;
-
-    // Deterministic day-seeded category pick (same for all with same interests on same day)
-    const dayNum = Math.floor(Date.now() / 86400000);
-    const category = cats[dayNum % cats.length];
-    // Locals get 2-stop challenge every other day, tourists always get 1
-    const target = visitorType === 'local' && dayNum % 2 === 0 ? 2 : 1;
-
-    // Count check-ins made today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const progress = collection.filter(
-      (c) => c.category === category && new Date(c.checkedInAt) >= today
-    ).length;
-
-    const todayStr = new Date().toDateString();
-    const claimed = !!dailyClaimed[todayStr];
-    const achieved = progress >= target;
-
-    return {
-      category,
-      emoji: DAILY_CATEGORY_EMOJIS[category] || '📍',
-      target,
-      progress: Math.min(progress, target),
-      xpBonus: target * 75,
-      achieved,
-      claimed,
-    };
-  },
-
   /**
    * Returns categories sorted by affinity score (0–100).
    * Recent check-ins are weighted more heavily (exponential decay over 90 days).
@@ -526,7 +425,6 @@ const useStore = create((set, get) => ({
     return EXPLORER_TYPES[top?.[0]] || { type: 'Urban Explorer', desc: 'No corner goes unchecked.' };
   },
 
-  },
   getDNAStats: () => {
     const { collection } = get();
     const categories = ['Architecture', 'Food', 'History', 'Art', 'Nature', 'Hidden', 'Nightlife', 'Culture'];

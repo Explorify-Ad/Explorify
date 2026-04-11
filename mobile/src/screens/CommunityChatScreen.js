@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView, Alert } from 'react-native';
 import api from '../services/api';
 import useStore from '../store/useStore';
 import { ArrowLeft, Send } from 'lucide-react-native';
@@ -86,10 +86,27 @@ export default function CommunityChatScreen({ route, navigation }) {
     setInputText('');
     setSending(true);
 
+    const optimistic = {
+      id: `opt-${Date.now()}`,
+      channel_id: activeChannel.id,
+      sender_id: user.id,
+      sender_name: user.name || 'Explorer',
+      sender: 'You',
+      content: text,
+      type: 'text',
+      metadata: {},
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, optimistic]);
+
     try {
-      await sendChannelMessage(activeChannel.id, user.id, user.name || 'Explorer', text);
+      const saved = await sendChannelMessage(activeChannel.id, user.id, user.name || 'Explorer', text);
+      setMessages(prev => prev.map(m => m.id === optimistic.id
+        ? { ...saved, sender: 'You' }
+        : m));
     } catch (err) {
       console.warn('Send message error:', err);
+      setMessages(prev => prev.filter(m => m.id !== optimistic.id));
       Alert.alert('Error', 'Failed to send message.');
     } finally {
       setSending(false);

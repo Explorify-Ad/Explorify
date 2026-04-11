@@ -51,7 +51,9 @@ export default function ExpeditionPreviewScreen() {
   };
 
 
+  const isQuest    = route.params?.isQuest === true;
   const authUser   = useStore((s) => s.authUser);
+  const setActiveQuest = useStore((s) => s.setActiveQuest);
   const [joining,  setJoining]  = useState(false);
   const [isMember, setIsMember] = useState(
     // Quick check from the memberIds passed by MapScreen (avoids a round-trip on mount)
@@ -61,11 +63,12 @@ export default function ExpeditionPreviewScreen() {
 
   // Confirm membership from DB on mount (in case params are stale)
   useEffect(() => {
+    if (isQuest) return;
     if (!expedition.id || !authUser?.id) return;
     fetchExpeditionMembers(expedition.id)
       .then((members) => setIsMember(members.some((m) => m.user_id === authUser.id)))
       .catch(() => {});
-  }, [expedition.id, authUser?.id]);
+  }, [expedition.id, authUser?.id, isQuest]);
 
   // Animations
   const heroOpacity = useRef(new Animated.Value(0)).current;
@@ -96,6 +99,13 @@ export default function ExpeditionPreviewScreen() {
 
   const handleJoin = async () => {
     if (joining) return;
+    // Quests are personal challenges — no DB expedition to join. Activate the
+    // quest and jump to the map so the user can start exploring.
+    if (isQuest) {
+      await setActiveQuest(expedition.id);
+      navigation.navigate('Map');
+      return;
+    }
     setJoining(true);
     try {
       await joinExpedition(expedition.id, authUser.id, authUser.name ?? 'Explorer');
@@ -358,7 +368,7 @@ export default function ExpeditionPreviewScreen() {
                     <ActivityIndicator color="white" />
                   ) : (
                     <>
-                      <Text style={styles.joinText}>Join Expedition</Text>
+                      <Text style={styles.joinText}>{isQuest ? 'Start Quest' : 'Join Expedition'}</Text>
                       <ChevronRight size={18} color="white" strokeWidth={2.5} />
                     </>
                   )}

@@ -95,19 +95,23 @@ export default function CommunityScreen({ navigation }) {
               </View>
 
               {item.is_member ? (
-                <View style={[styles.joinBtn, styles.memberBadge]}>
-                   <Users size={20} color="#fff" />
+                <View style={[styles.joinPill, styles.memberPill]}>
+                  <Users size={14} color="#fff" />
+                  <Text style={styles.joinPillText}>Joined</Text>
                 </View>
               ) : (
-                <TouchableOpacity 
-                  style={styles.joinBtn} 
-                  onPress={() => handleJoin(item.id, item.name)}
+                <TouchableOpacity
+                  style={styles.joinPill}
+                  onPress={(e) => { e.stopPropagation?.(); handleJoin(item.id, item.name); }}
                   disabled={joiningId === item.id}
                 >
                   {joiningId === item.id ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <PlusCircle size={24} color="#fff" />
+                    <>
+                      <PlusCircle size={14} color="#fff" />
+                      <Text style={styles.joinPillText}>Join</Text>
+                    </>
                   )}
                 </TouchableOpacity>
               )}
@@ -219,17 +223,25 @@ const styles = StyleSheet.create({
     color: '#0369A1',
     textTransform: 'uppercase',
   },
-  joinBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#2E86AB',
-    justifyContent: 'center',
+  joinPill: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 100,
+    backgroundColor: '#2E86AB',
     marginLeft: 8,
+    minWidth: 78,
+    justifyContent: 'center',
   },
-  memberBadge: {
+  memberPill: {
     backgroundColor: '#10B981',
+  },
+  joinPillText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
   },
   cardFooter: {
     flexDirection: 'row',
@@ -240,6 +252,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
+  },
+  footerInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   footerText: {
     fontSize: 12,
