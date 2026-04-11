@@ -223,12 +223,15 @@ export default function RouteBuilderScreen({ route: navigationRoute, navigation 
   const { tier: batteryTier, getAdjustedBudget, batteryLevel } = useBattery();
   const { weather } = useWeather(location?.latitude, location?.longitude);
 
-  const preferences      = useStore((s) => s.preferences);
-  const interests        = useStore((s) => s.interests);
-  const setPreferences   = useStore((s) => s.setPreferences);
-  const authUser         = useStore((s) => s.authUser);
-  const getWalkPaceKmh   = useStore((s) => s.getWalkPaceKmh);
-  const walkPaceSamples  = useStore((s) => s.walkPaceSamples);
+  const preferences            = useStore((s) => s.preferences);
+  const interests              = useStore((s) => s.interests);
+  const setPreferences         = useStore((s) => s.setPreferences);
+  const authUser               = useStore((s) => s.authUser);
+  const getWalkPaceKmh         = useStore((s) => s.getWalkPaceKmh);
+  const walkPaceSamples        = useStore((s) => s.walkPaceSamples);
+  const recordRouteGenerated   = useStore((s) => s.recordRouteGenerated);
+  const getCategoryDwellAverages = useStore((s) => s.getCategoryDwellAverages);
+  const lastRouteGenerated     = useStore((s) => s.lastRouteGenerated);
 
   const [timeBudget, setTimeBudget] = useState(60);
   const [selectedCats, setSelectedCats] = useState(CATEGORIES);
@@ -303,16 +306,18 @@ export default function RouteBuilderScreen({ route: navigationRoute, navigation 
           parseFloat(lm.latitude), parseFloat(lm.longitude)
         );
         const walkMin = walkMinutes(distM, walkSpeed);
-        const visitMin = lm.avg_visit_duration_min || 30;
+        const dwellAvgs = getCategoryDwellAverages();
+        const visitMin = dwellAvgs[lm.category] || lm.avg_visit_duration_min || 30;
         const totalMin = walkMin + visitMin;
 
         // Score: penalise distance, reward unvisited, reward indoor when raining
         let score = 1000 - distM * 0.1;
+        const localReasons = [...(lm.reasons || [])];
         if (!visitedIds.has(String(lm.id))) score += 200;
-        if (isRaining && lm.is_indoor) score += 150;
-        if (companyType === 'family' && lm.accessibility_level >= 4) score += 100;
+        if (isRaining && lm.is_indoor) { score += 150; localReasons.push('🌧️ Indoor — rainy day pick'); }
+        if (companyType === 'family' && lm.accessibility_level >= 4) { score += 100; localReasons.push('♿ Family-friendly'); }
 
-        return { ...lm, _distM: distM, _walkMin: walkMin, _visitMin: visitMin, _totalMin: totalMin, _score: score };
+        return { ...lm, _distM: distM, _walkMin: walkMin, _visitMin: visitMin, _totalMin: totalMin, _score: score, reasons: localReasons };
       });
 
       // 4. Greedy pick: add highest-scoring landmark that fits remaining budget
@@ -362,6 +367,9 @@ export default function RouteBuilderScreen({ route: navigationRoute, navigation 
       route.forEach(l => totalXP += (l.points || 10) * 15);
       setRouteStats({ stops: route.length, totalMin, totalXP });
 
+      // Record this route for abandonment detection
+      recordRouteGenerated(route.map(l => l.id));
+
     } catch (err) {
       console.error(err);
       Alert.alert('Error', 'Failed to generate route. Please try again.');
@@ -398,12 +406,40 @@ export default function RouteBuilderScreen({ route: navigationRoute, navigation 
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 32 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Previous session recap */}
+        {(() => {
+          if (!lastRouteGenerated?.ids?.length) return null;
+          const { collection: col } = useStore.getState();
+          const checkedIds = new Set(col.map(c => String(c.id)));
+          const completed = lastRouteGenerated.ids.filter(id => checkedIds.has(id)).length;
+          const total = lastRouteGenerated.ids.length;
+          const hoursAgo = Math.round((Date.now() - lastRouteGenerated.timestamp) / 3600000);
+          if (completed === 0 || hoursAgo > 48) return null;
+          const earnedXP = col
+            .filter(c => lastRouteGenerated.ids.includes(String(c.id)))
+            .reduce((s, c) => s + (c.xpEarned || 150), 0);
+          return (
+            <View style={[styles.banner, { backgroundColor: '#F5F3FF', marginBottom: 8 }]}>
+              <Zap size={14} color="#7C3AED" strokeWidth={2} />
+              <Text style={[styles.bannerText, { color: '#7C3AED' }]}>
+                Last route: {completed}/{total} stops · +{earnedXP} XP · {hoursAgo}h ago
+              </Text>
+            </View>
+          );
+        })()}
         <WeatherBanner weather={weather} />
         {walkPaceSamples.length >= 2 && (
           <View style={[styles.banner, { backgroundColor: '#F0FDF4' }]}>
             <Route size={14} color="#166534" strokeWidth={2} />
             <Text style={[styles.bannerText, { color: '#166534' }]}>
               Using your pace · {getWalkPaceKmh().toFixed(1)} km/h ({walkPaceSamples.length} trips recorded)
+            </Text>
+          </View>
+        )}
+        {preferences.abandonment_streak >= 2 && (
+          <View style={[styles.banner, { backgroundColor: '#FFF7ED' }]}>
+            <Text style={[styles.bannerText, { color: '#C2410C' }]}>
+              💡 You've skipped recent routes — shorter budget selected automatically
             </Text>
           </View>
         )}

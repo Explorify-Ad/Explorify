@@ -1,11 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, TextInput } from 'react-native';
 // import { BlurView } from 'expo-blur'; // Removing to fix bundling error
 import { LinearGradient } from 'expo-linear-gradient';
 
+const TIER_XP = { public: 150, discovered: 320, hidden: 600 };
+
 export default function FeedbackModal({ visible, landmark, onValue, onCancel }) {
   const [rating, setRating] = useState(0);
   const [notes, setNotes] = useState('');
+  const tierXp = TIER_XP[landmark?.tier] || 150;
+
+  // Reset form each time the modal opens
+  useEffect(() => {
+    if (visible) { setRating(0); setNotes(''); }
+  }, [visible]);
 
   const stars = [1, 2, 3, 4, 5];
 
@@ -49,7 +57,7 @@ export default function FeedbackModal({ visible, landmark, onValue, onCancel }) 
               onPress={() => onValue({ rating, notes })}
               disabled={!rating}
             >
-              <Text style={[styles.submitText, { color: '#7E22CE' }]}>Earn +20 XP</Text>
+              <Text style={[styles.submitText, { color: '#7E22CE' }]}>Check In · +{tierXp} XP</Text>
             </TouchableOpacity>
           </View>
         </LinearGradient>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import Svg, { Polygon, Line, Text as SvgText } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -6,6 +6,23 @@ import { useNavigation } from '@react-navigation/native';
 import { TopHUD } from '../components/explorify/TopHUD';
 import { useTheme } from '../context/ThemeContext';
 import useStore from '../store/useStore';
+
+const INTEREST_OPTIONS = [
+  { id: 'architecture', label: '🏛️ Architecture' },
+  { id: 'food',         label: '🍜 Food' },
+  { id: 'nature',       label: '🌿 Nature' },
+  { id: 'history',      label: '⚔️ History' },
+  { id: 'art',          label: '🎨 Art' },
+  { id: 'nightlife',    label: '🌃 Nightlife' },
+];
+
+const ACCESS_OPTIONS = [
+  { id: 1, label: '1 — All routes' },
+  { id: 2, label: '2 — Mostly flat' },
+  { id: 3, label: '3 — No steep hills' },
+  { id: 4, label: '4 — Wheelchair-friendly' },
+  { id: 5, label: '5 — Full accessibility' },
+];
 
 const CHART_SIZE = 300;
 const CX = CHART_SIZE / 2;
@@ -69,11 +86,18 @@ export default function ProfileScreen() {
   const getExplorerType = useStore((s) => s.getExplorerType);
   const collection     = useStore((s) => s.collection);
 
-  const signOut      = useStore((s) => s.signOut);
-  const authUser     = useStore((s) => s.authUser);
-  const preferences  = useStore((s) => s.preferences);
+  const signOut        = useStore((s) => s.signOut);
+  const authUser       = useStore((s) => s.authUser);
+  const preferences    = useStore((s) => s.preferences);
   const setPreferences = useStore((s) => s.setPreferences);
-  const navigation   = useNavigation();
+  const interests      = useStore((s) => s.interests);
+  const setInterests   = useStore((s) => s.setInterests);
+  const resetLearning      = useStore((s) => s.resetLearning);
+  const getWalkPaceKmh     = useStore((s) => s.getWalkPaceKmh);
+  const walkPaceSamples    = useStore((s) => s.walkPaceSamples);
+  const getTotalXP         = useStore((s) => s.getTotalXP);
+  const explorerTypeHistory = useStore((s) => s.explorerTypeHistory);
+  const navigation         = useNavigation();
 
   const level        = getLevel();
   const streak       = getStreak();
@@ -82,7 +106,42 @@ export default function ProfileScreen() {
   const explorerType = getExplorerType();
   const achievements = buildAchievements(collection, streak, stats.quests);
 
-  const [visitorType, setVisitorType] = useState('tourist');
+  // Compute per-category dwell averages from local collection
+  const dwellStats = useMemo(() => {
+    const totals = {}, counts = {};
+    collection.forEach(c => {
+      if (c.dwell_time_min > 0 && c.category) {
+        totals[c.category] = (totals[c.category] || 0) + c.dwell_time_min;
+        counts[c.category] = (counts[c.category] || 0) + 1;
+      }
+    });
+    const avgs = {};
+    Object.keys(totals).forEach(cat => { avgs[cat] = Math.round(totals[cat] / counts[cat]); });
+    return avgs; // { Architecture: 24, Food: 18, … }
+  }, [collection]);
+
+  // Compute category visit distribution for insight strip
+  const catDistribution = useMemo(() => {
+    const counts = {};
+    collection.forEach(c => { if (c.category) counts[c.category] = (counts[c.category] || 0) + 1; });
+    const total = collection.length || 1;
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat, n]) => ({ cat, n, pct: Math.round((n / total) * 100) }));
+  }, [collection]);
+
+  const learnedPace = getWalkPaceKmh();
+  const paceLabel = walkPaceSamples.length < 2 ? 'Default (no walks yet)' : `${learnedPace.toFixed(1)} km/h`;
+
+  const totalXP = getTotalXP();
+  const DISCOVERED_XP = 500;
+  const HIDDEN_XP = 2500;
+  const nextTierLabel = totalXP < DISCOVERED_XP ? 'Discovered'
+    : totalXP < HIDDEN_XP ? 'Hidden' : null;
+  const nextTierXP = totalXP < DISCOVERED_XP ? DISCOVERED_XP
+    : totalXP < HIDDEN_XP ? HIDDEN_XP : null;
+  const tierProgressPct = nextTierXP
+    ? Math.min(100, Math.round((totalXP / nextTierXP) * 100)) : 100;
 
   const visitorTypes = [
     { id: 'tourist', label: '✈️ Tourist', desc: 'Prioritizes iconic landmarks.' },
@@ -148,12 +207,44 @@ export default function ProfileScreen() {
           ))}
         </View>
 
-        <TouchableOpacity 
-          style={[styles.visitorTypeContainer, { marginTop: 0, padding: 12, borderStyle: 'dashed', borderWidth: 1, borderColor: theme.primary, borderRadius: 16 }]}
-          onPress={() => navigation.navigate('Onboarding')}
-        >
-          <Text style={{ textAlign: 'center', width: '100%', color: theme.primary, fontWeight: '700' }}>✨ Redo Onboarding / Edit Interests</Text>
-        </TouchableOpacity>
+        {/* Inline interest chip editor */}
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginTop: 4 }]}>Your Interests</Text>
+        <View style={styles.chipWrap}>
+          {INTEREST_OPTIONS.map(opt => {
+            const active = interests.includes(opt.id);
+            return (
+              <TouchableOpacity
+                key={opt.id}
+                style={[styles.chip, active && { backgroundColor: theme.primary, borderColor: theme.primary }]}
+                onPress={() => {
+                  const next = active
+                    ? interests.filter(i => i !== opt.id)
+                    : [...interests, opt.id];
+                  if (next.length > 0) setInterests(next);
+                }}
+              >
+                <Text style={[styles.chipText, active && { color: '#fff' }]}>{opt.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Accessibility level */}
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Accessibility Needs</Text>
+        <View style={styles.chipWrap}>
+          {ACCESS_OPTIONS.map(opt => {
+            const active = (preferences.accessibility_min || 1) === opt.id;
+            return (
+              <TouchableOpacity
+                key={opt.id}
+                style={[styles.chip, { flex: undefined, paddingHorizontal: 14 }, active && { backgroundColor: theme.primary, borderColor: theme.primary }]}
+                onPress={() => setPreferences({ accessibility_min: opt.id })}
+              >
+                <Text style={[styles.chipText, active && { color: '#fff' }]}>{opt.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
 
         {/* Detail Level Selection */}
@@ -248,13 +339,11 @@ export default function ProfileScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.insightLabel, { color: theme.textSecondary }]}>Learned Walking Pace</Text>
-              <Text style={[styles.insightValue, { color: theme.textPrimary }]}>
-                {(preferences.walking_speed_kmh || 4.5).toFixed(1)} km/h
-              </Text>
+              <Text style={[styles.insightValue, { color: theme.textPrimary }]}>{paceLabel}</Text>
             </View>
             <View style={styles.insightBadge}>
               <Text style={styles.badgeText}>
-                {(preferences.walking_speed_kmh || 4.5) > 5.0 ? 'Fast Walker' : (preferences.walking_speed_kmh || 4.5) > 4.5 ? 'Active' : 'Steady'}
+                {walkPaceSamples.length < 2 ? 'Learning' : learnedPace > 5.0 ? 'Fast Walker' : learnedPace > 4.5 ? 'Active' : 'Steady'}
               </Text>
             </View>
           </View>
@@ -269,14 +358,19 @@ export default function ProfileScreen() {
             <View style={{ flex: 1 }}>
               <Text style={[styles.insightLabel, { color: theme.textSecondary }]}>Visit Duration Style</Text>
               <Text style={[styles.insightValue, { color: theme.textPrimary }]}>
-                {Object.keys(preferences.category_dwell_multipliers || {}).length > 0 
-                  ? 'Personalised from your visits' 
+                {Object.keys(dwellStats).length > 0
+                  ? `${Object.keys(dwellStats).length} categories personalised`
                   : collection.length === 0 ? 'Default (no data yet)' : 'Standard'}
               </Text>
+              {Object.keys(dwellStats).length > 0 && (
+                <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>
+                  {Object.entries(dwellStats).slice(0, 3).map(([c, m]) => `${c}: ${m} min`).join(' · ')}
+                </Text>
+              )}
             </View>
             <View style={styles.insightBadge}>
               <Text style={styles.badgeText}>
-                {Object.keys(preferences.category_dwell_multipliers || {}).length > 0 ? 'Learned' : 'Default'}
+                {Object.keys(dwellStats).length > 0 ? 'Learned' : 'Default'}
               </Text>
             </View>
           </View>
@@ -291,12 +385,23 @@ export default function ProfileScreen() {
             <View style={{ flex: 1 }}>
               <Text style={[styles.insightLabel, { color: theme.textSecondary }]}>Difficulty Tier</Text>
               <Text style={[styles.insightValue, { color: theme.textPrimary }]}>
-                {collection.reduce((s, c) => s + (c.xpEarned || 150), 0) >= 2000
-                  ? 'All tiers unlocked'
-                  : collection.reduce((s, c) => s + (c.xpEarned || 150), 0) >= 500
-                  ? 'Discovered tier unlocked'
+                {!nextTierLabel ? 'All tiers unlocked 🎉'
+                  : totalXP >= DISCOVERED_XP ? 'Discovered unlocked'
                   : 'Public tier only'}
               </Text>
+              {nextTierLabel && (
+                <View style={{ marginTop: 6 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                    <Text style={{ fontSize: 11, color: theme.textSecondary }}>
+                      {nextTierXP - totalXP} XP to unlock {nextTierLabel}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: theme.textSecondary }}>{tierProgressPct}%</Text>
+                  </View>
+                  <View style={{ height: 5, backgroundColor: '#F3F4F6', borderRadius: 3 }}>
+                    <View style={{ width: `${tierProgressPct}%`, height: 5, borderRadius: 3, backgroundColor: theme.primary }} />
+                  </View>
+                </View>
+              )}
             </View>
             <View style={[styles.insightBadge, { 
               backgroundColor: collection.reduce((s, c) => s + (c.xpEarned || 150), 0) >= 2000 ? '#ECFDF5' : '#FEF3C7' 
@@ -345,18 +450,41 @@ export default function ProfileScreen() {
             onPress={() => {
               Alert.alert('Reset Learning', 'This will clear your learned walking pace, visit durations, and route preferences. Routes will use default values. Continue?', [
                 { text: 'Cancel', style: 'cancel' },
-                { text: 'Reset', style: 'destructive', onPress: () => setPreferences({ 
-                    walking_speed_kmh: 4.5, 
-                    category_dwell_multipliers: {},
-                    abandonment_streak: 0 
-                  }) 
-                }
+                { text: 'Reset', style: 'destructive', onPress: () => resetLearning() }
               ]);
             }}
           >
             <Text style={styles.resetBtnText}>Reset Behavioral Learning</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Category insight strip */}
+        {catDistribution.length > 0 && (
+          <>
+            <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>What You Actually Explore</Text>
+            <View style={[styles.insightsCard, { backgroundColor: 'white', paddingVertical: 16 }]}>
+              {catDistribution.map(({ cat, n, pct }) => {
+                const stated = interests.some(i => i === cat.toLowerCase());
+                return (
+                  <View key={cat} style={{ marginBottom: 10 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: theme.textPrimary }}>
+                        {cat} {stated ? '✅' : '⚠️'}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: theme.textSecondary }}>{n} check-in{n !== 1 ? 's' : ''} · {pct}%</Text>
+                    </View>
+                    <View style={{ height: 6, backgroundColor: '#F3F4F6', borderRadius: 3 }}>
+                      <View style={{ width: `${pct}%`, height: 6, borderRadius: 3, backgroundColor: stated ? theme.primary : '#F97316' }} />
+                    </View>
+                  </View>
+                );
+              })}
+              <Text style={[styles.insightFooterText, { paddingTop: 8 }]}>
+                ✅ Matches your interests · ⚠️ Outside stated interests (potential drift)
+              </Text>
+            </View>
+          </>
+        )}
 
         {/* Stats */}
         <View style={styles.statsGrid}>
@@ -381,6 +509,27 @@ export default function ProfileScreen() {
             {explorerType.desc}
           </Text>
         </View>
+
+        {/* Explorer type evolution */}
+        {explorerTypeHistory.length > 1 && (
+          <View style={{ marginBottom: 20, padding: 16, backgroundColor: 'white', borderRadius: 16 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: theme.textPrimary, marginBottom: 8 }}>
+              Your Explorer Evolution
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
+              {explorerTypeHistory.map((h, i) => (
+                <React.Fragment key={i}>
+                  <Text style={{ fontSize: 12, color: i === explorerTypeHistory.length - 1 ? theme.primary : theme.textSecondary, fontWeight: i === explorerTypeHistory.length - 1 ? '700' : '400' }}>
+                    {h.type}
+                  </Text>
+                  {i < explorerTypeHistory.length - 1 && (
+                    <Text style={{ fontSize: 12, color: theme.textSecondary }}> → </Text>
+                  )}
+                </React.Fragment>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* Achievements */}
         <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Achievements</Text>
@@ -534,6 +683,25 @@ const styles = StyleSheet.create({
   },
   explorerType: { fontSize: 22, fontWeight: '700', marginBottom: 6 },
   explorerDesc: { fontSize: 14, lineHeight: 20 },
+  chipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 24,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#fff',
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+  },
   achievementScroll: { gap: 12, paddingBottom: 4 },
   achievementBtn: {
     width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center',

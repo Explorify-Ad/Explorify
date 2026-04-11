@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -118,16 +118,123 @@ function WeatherWidget({ weather }) {
   );
 }
 
+// ─── Stale Interest Nudge ────────────────────────────────────────────────────
+
+const CAT_MAP_NUDGE = {
+  architecture: 'Architecture', food: 'Food', history: 'History',
+  art: 'Art', nature: 'Nature', nightlife: 'Nightlife',
+};
+
+function StaleInterestNudge({ interests, collection, navigation }) {
+  const { theme } = useTheme();
+  const stale = useMemo(() => {
+    if (!collection.length) return [];
+    const now = Date.now();
+    return interests
+      .map(i => {
+        const cat = CAT_MAP_NUDGE[i];
+        if (!cat) return null;
+        const visits = collection.filter(c => c.category === cat);
+        if (!visits.length) return { cat, daysSince: null };
+        const last = Math.max(...visits.map(c => new Date(c.checkedInAt).getTime()));
+        const days = Math.floor((now - last) / 86400000);
+        return days >= 14 ? { cat, daysSince: days } : null;
+      })
+      .filter(Boolean)
+      .slice(0, 2);
+  }, [interests, collection]);
+
+  if (!stale.length) return null;
+
+  return (
+    <TouchableOpacity
+      style={[styles.adaptiveCard, { backgroundColor: '#F0FDF4', borderColor: '#86EFAC', borderWidth: 1 }]}
+      onPress={() => navigation.navigate('Nearby')}
+      activeOpacity={0.8}
+    >
+      <View style={styles.adaptiveInner}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <Compass size={16} color="#166534" strokeWidth={2} />
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#166534' }}>Time to revisit your interests</Text>
+        </View>
+        {stale.map(({ cat, daysSince }) => (
+          <Text key={cat} style={{ fontSize: 12, color: '#15803D' }}>
+            • {cat}: {daysSince ? `${daysSince} days since last visit` : 'never explored yet'}
+          </Text>
+        ))}
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+// ─── Weekly Recap ─────────────────────────────────────────────────────────────
+
+function WeeklyRecap({ collection }) {
+  const { theme } = useTheme();
+  const recap = useMemo(() => {
+    const cutoff = Date.now() - 7 * 24 * 3600000;
+    const recent = collection.filter(c => new Date(c.checkedInAt).getTime() > cutoff);
+    if (!recent.length) return null;
+    const xp = recent.reduce((s, c) => s + (c.xpEarned || 150), 0);
+    const cats = [...new Set(recent.map(c => c.category).filter(Boolean))];
+    const avgDwell = recent.filter(c => c.dwell_time_min > 0).reduce((s, c, _, a) => s + c.dwell_time_min / a.length, 0);
+    return { count: recent.length, xp, cats, avgDwell: Math.round(avgDwell) };
+  }, [collection]);
+
+  if (!recap) return null;
+
+  return (
+    <View style={[styles.adaptiveCard, { backgroundColor: '#EFF6FF', marginBottom: 16 }]}>
+      <View style={styles.adaptiveInner}>
+        <Text style={{ fontSize: 13, fontWeight: '800', color: '#1E40AF', marginBottom: 6 }}>
+          📊 This week
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 16 }}>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={{ fontSize: 20, fontWeight: '700', color: '#1E40AF' }}>{recap.count}</Text>
+            <Text style={{ fontSize: 10, color: '#3B82F6' }}>check-ins</Text>
+          </View>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={{ fontSize: 20, fontWeight: '700', color: '#1E40AF' }}>+{recap.xp}</Text>
+            <Text style={{ fontSize: 10, color: '#3B82F6' }}>XP earned</Text>
+          </View>
+          {recap.avgDwell > 0 && (
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 20, fontWeight: '700', color: '#1E40AF' }}>{recap.avgDwell}m</Text>
+              <Text style={{ fontSize: 10, color: '#3B82F6' }}>avg dwell</Text>
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 11, color: '#1D4ED8' }}>{recap.cats.join(' · ')}</Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 // ─── Drift Notification banner (Phase 8.3) ───────────────────────────────────
 
 function DriftNotification() {
   const driftAlert = useStore(s => s.driftAlert);
+  const clearDriftAlert = useStore(s => s.clearDriftAlert);
   if (!driftAlert) return null;
 
+  const handlePress = () => {
+    Alert.alert(
+      'Your Tastes Are Evolving',
+      `You've been exploring more ${driftAlert.to} lately instead of ${driftAlert.from}.\n\nUpdate your interests in Profile to keep recommendations accurate.`,
+      [
+        { text: 'Dismiss', style: 'cancel', onPress: clearDriftAlert },
+        { text: 'Update Interests', onPress: clearDriftAlert },
+      ],
+    );
+  };
+
   return (
-    <TouchableOpacity 
+    <TouchableOpacity
       style={[styles.adaptiveCard, { backgroundColor: '#FFF7ED', borderColor: '#FDBA74', borderWidth: 1 }]}
-      onPress={() => Alert.alert('Evolving Tastes', `We noticed you've been exploring more ${driftAlert.to} lately instead of ${driftAlert.from}. Your profile has been slightly adapted to match this trend.`)}
+      onPress={handlePress}
     >
       <View style={styles.adaptiveInner}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -135,8 +242,7 @@ function DriftNotification() {
           <Text style={{ fontSize: 14, fontWeight: '700', color: '#9A3412' }}>Your tastes are evolving!</Text>
         </View>
         <Text style={{ fontSize: 12, color: '#C2410C', marginTop: 4 }}>
-          You're moving from {driftAlert.from} towards {driftAlert.to}. 
-          Tap to learn more.
+          More {driftAlert.to} than {driftAlert.from} lately. Tap to update interests.
         </Text>
       </View>
     </TouchableOpacity>
@@ -380,7 +486,11 @@ export default function HomeScreen({ navigation }) {
 
       <WeatherWidget weather={weather} />
 
+      <WeeklyRecap collection={collection} />
+
       <DriftNotification />
+
+      <StaleInterestNudge interests={interests} collection={collection} navigation={navigation} />
 
 
       {/* Scrutability: Adaptive Profile Summary */}

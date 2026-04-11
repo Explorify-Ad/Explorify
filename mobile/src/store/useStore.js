@@ -86,6 +86,8 @@ const useStore = create((set, get) => ({
   authUser: null,          
   isAuthenticated: false,
   driftAlert: null,
+  lastRouteGenerated: null,   // { ids: string[], timestamp: number }
+  explorerTypeHistory: [],    // [{ type: string, timestamp: number }]
   refinementMessage: null,
 
   // ─── Actions ──────────────────────────────────────────────────────────────
@@ -154,6 +156,82 @@ const useStore = create((set, get) => ({
     setAuthToken(null);
   },
 
+  setInterests: async (newInterests) => {
+    set({ interests: newInterests });
+    await get()._persist();
+  },
+
+  clearDriftAlert: () => set({ driftAlert: null }),
+
+  /** Returns average dwell time (min) per category from local collection. */
+  getCategoryDwellAverages: () => {
+    const { collection } = get();
+    const totals = {}, counts = {};
+    collection.forEach(c => {
+      if (c.dwell_time_min > 0 && c.category) {
+        totals[c.category] = (totals[c.category] || 0) + c.dwell_time_min;
+        counts[c.category] = (counts[c.category] || 0) + 1;
+      }
+    });
+    const avgs = {};
+    Object.keys(totals).forEach(cat => { avgs[cat] = Math.round(totals[cat] / counts[cat]); });
+    return avgs;
+  },
+
+  /** Returns the time-of-day the user most commonly explores, or null if < 5 check-ins. */
+  getPreferredTimeOfDay: () => {
+    const { collection } = get();
+    if (collection.length < 5) return null;
+    const counts = { morning: 0, afternoon: 0, evening: 0, night: 0 };
+    collection.forEach(c => {
+      if (!c.checkedInAt) return;
+      const h = new Date(c.checkedInAt).getHours();
+      if (h >= 6 && h < 12)        counts.morning++;
+      else if (h >= 12 && h < 17)  counts.afternoon++;
+      else if (h >= 17 && h < 21)  counts.evening++;
+      else                          counts.night++;
+    });
+    const [topTime, topCount] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    return topCount >= 3 ? topTime : null;
+  },
+
+  /**
+   * Call this after generating a route. Detects if the PREVIOUS route was
+   * abandoned (generated <12 h ago, zero stops checked in) and increments
+   * abandonment_streak accordingly; resets it if the previous route was started.
+   */
+  recordRouteGenerated: async (landmarkIds) => {
+    const { lastRouteGenerated, collection } = get();
+    if (lastRouteGenerated?.ids?.length) {
+      const hoursAgo = (Date.now() - lastRouteGenerated.timestamp) / 3600000;
+      if (hoursAgo < 12) {
+        const checkedIds = new Set(collection.map(c => String(c.id)));
+        const anyStarted = lastRouteGenerated.ids.some(id => checkedIds.has(String(id)));
+        set(state => ({
+          preferences: {
+            ...state.preferences,
+            abandonment_streak: anyStarted ? 0 : (state.preferences.abandonment_streak || 0) + 1,
+          },
+        }));
+      }
+    }
+    set({ lastRouteGenerated: { ids: landmarkIds.map(String), timestamp: Date.now() } });
+    await get()._persist();
+  },
+
+  resetLearning: async () => {
+    set((state) => ({
+      walkPaceSamples: [],
+      preferences: {
+        ...state.preferences,
+        walking_speed_kmh: null,
+        category_dwell_multipliers: {},
+        abandonment_streak: 0,
+      },
+    }));
+    await get()._persist();
+  },
+
   completeOnboarding: async (interests, userName = 'Explorer', visitorType = 'tourist', onboardingPrefs = {}) => {
     const catMap = {
       architecture: 'q_arch', food: 'q_food', history: 'q_history',
@@ -209,6 +287,7 @@ const useStore = create((set, get) => ({
       xpEarned: xp,
       rating: feedback.rating,
       notes: feedback.notes,
+      dwell_time_min: feedback.dwellTime || 0,
     };
 
     set((state) => ({
@@ -227,10 +306,60 @@ const useStore = create((set, get) => ({
       });
     }
 
+    // Snapshot quest progress before update so we can detect completions
+    const questsBefore = get().quests;
+
     // Update quest progress from the now-updated collection
     await get().fetchQuests();
     await get()._persist();
-    return { xp };
+
+    // Detect quests that just hit required_count this check-in
+    const questsAfter = get().quests;
+    const outcomes = questsAfter
+      .filter((q) => {
+        const before = questsBefore.find((b) => b.id === q.id);
+        return q.progress_count >= q.required_count &&
+               (!before || before.progress_count < q.required_count);
+      })
+      .map((q) => ({ type: 'QUEST_COMPLETED', questId: q.id, title: q.title }));
+
+    // ── On-device drift detection ─────────────────────────────────────────────
+    {
+      const { collection: col2, interests: stated } = get();
+      if (col2.length >= 5 && stated.length > 0) {
+        const CAT_MAP = { architecture: 'Architecture', food: 'Food', history: 'History', art: 'Art', nature: 'Nature', nightlife: 'Nightlife' };
+        const statedCats = new Set(stated.map(i => CAT_MAP[i]).filter(Boolean));
+        const recent = col2.slice(-10);
+        const counts = {};
+        recent.forEach(c => { if (c.category) counts[c.category] = (counts[c.category] || 0) + 1; });
+        const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+        const topCat = sorted[0]?.[0];
+        const topCount = sorted[0]?.[1] || 0;
+        if (topCat && !statedCats.has(topCat) && topCount >= 3) {
+          const fromCat = CAT_MAP[stated[0]] || stated[0];
+          const current = get().driftAlert;
+          if (!current || current.to !== topCat) {
+            set({ driftAlert: { from: fromCat, to: topCat } });
+          }
+        }
+      }
+    }
+
+    // ── Track explorer type evolution ─────────────────────────────────────────
+    {
+      const currentType = get().getExplorerType().type;
+      const history = get().explorerTypeHistory;
+      if (history[history.length - 1]?.type !== currentType) {
+        set(state => ({
+          explorerTypeHistory: [
+            ...state.explorerTypeHistory.slice(-4),
+            { type: currentType, timestamp: Date.now() }
+          ]
+        }));
+      }
+    }
+
+    return { xp, outcomes };
   },
 
   recordWalkSegment: async (distanceM, durationSec) => {
@@ -454,20 +583,22 @@ const useStore = create((set, get) => ({
   _persist: async () => {
     const {
       hasOnboarded, userName, interests, collection,
-      activeQuestId, preferences, quests, 
-      communities, userBadges, completedQuests, 
+      activeQuestId, preferences, quests,
+      communities, userBadges, completedQuests,
       questBonusXP, dailyClaimed,
       walkPaceSamples, lastCheckIn,
+      lastRouteGenerated, explorerTypeHistory,
     } = get();
     try {
       await AsyncStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
           hasOnboarded, userName, interests, collection,
-          activeQuestId, preferences, quests, 
-          communities, userBadges, completedQuests, 
+          activeQuestId, preferences, quests,
+          communities, userBadges, completedQuests,
           questBonusXP, dailyClaimed,
           walkPaceSamples, lastCheckIn,
+          lastRouteGenerated, explorerTypeHistory,
         }),
       );
     } catch {}

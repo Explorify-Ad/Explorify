@@ -8,6 +8,8 @@ import {
   StyleSheet,
   Dimensions,
   ActivityIndicator,
+  Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -52,10 +54,13 @@ export default function NearbyScreen() {
   const insets     = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
 
-  const interests     = useStore((s) => s.interests);
-  const visitorType   = useStore((s) => s.visitorType);
-  const collection    = useStore((s) => s.collection);
-  const getUnlockedTiers = useStore((s) => s.getUnlockedTiers);
+  const interests           = useStore((s) => s.interests);
+  const visitorType         = useStore((s) => s.visitorType);
+  const collection          = useStore((s) => s.collection);
+  const preferences         = useStore((s) => s.preferences);
+  const getCategoryAffinities  = useStore((s) => s.getCategoryAffinities);
+  const getPreferredTimeOfDay  = useStore((s) => s.getPreferredTimeOfDay);
+  const getUnlockedTiers    = useStore((s) => s.getUnlockedTiers);
   const unlockedTiers = getUnlockedTiers();
 
   const [radius,       setRadius]       = useState(500);
@@ -87,16 +92,23 @@ export default function NearbyScreen() {
     if (!landmarks.length) { setSorted([]); return; }
 
     const context     = buildContext({ weather: null, batteryTier: 'ok' });
-    const preferences = buildPreferences({ interests, visitorType, collection });
+    const prefs = buildPreferences({
+      interests,
+      visitorType,
+      collection,
+      categoryAffinities: getCategoryAffinities(),
+      accessibilityMin: preferences.accessibility_min || 1,
+      preferredTimeOfDay: getPreferredTimeOfDay(),
+    });
 
     let result;
     if (sortMode === 'recommended') {
-      result = getRecommendations(landmarks, preferences, context);
+      result = getRecommendations(landmarks, prefs, context);
     } else if (sortMode === 'nearest') {
       result = [...landmarks].sort((a, b) => (a.distance ?? 9999) - (b.distance ?? 9999));
     } else {
       // 'rare' — hidden first, then discovered, then public; within each tier sort by score
-      const scored = getRecommendations(landmarks, preferences, context);
+      const scored = getRecommendations(landmarks, prefs, context);
       const tierRank = { hidden: 0, discovered: 1, public: 2 };
       result = scored.sort((a, b) => (tierRank[a.tier] ?? 2) - (tierRank[b.tier] ?? 2));
     }
@@ -397,7 +409,21 @@ export default function NearbyScreen() {
                     </View>
                   )}
                   {sortMode === 'recommended' && scoreLabel && !locked && (
-                    <Text style={[styles.scoreText, { color: theme.primary }]}>{scoreLabel}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={[styles.scoreText, { color: theme.primary }]}>{scoreLabel}</Text>
+                      {lm.reasons?.length > 0 && (
+                        <TouchableOpacity
+                          onPress={() => Alert.alert(
+                            `Why "${lm.name}"?`,
+                            `Match score: ${scoreLabel}\n\n` + lm.reasons.join('\n'),
+                            [{ text: 'Got it' }],
+                          )}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Text style={{ fontSize: 13, color: theme.primary }}>?</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   )}
                   {!locked && (
                     <Text style={[styles.distText, { color: theme.textSecondary }]}>{distLabel}</Text>

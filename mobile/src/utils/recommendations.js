@@ -64,25 +64,40 @@ export const getContextualGreeting = (userName, context, visitorType) => {
  */
 const calculateScore = (landmark, preferences, context) => {
   let score = 50;
+  const reasons = [];
 
   // ── Interest match ────────────────────────────────────────────────────────
-  if (preferences.preferred_categories?.includes(landmark.category)) score += 20;
+  if (preferences.preferred_categories?.includes(landmark.category)) {
+    score += 20;
+    reasons.push('⭐ Matches your interests');
+  }
 
   // ── visitor_type differentiation ─────────────────────────────────────────
   if (preferences.visitor_type === 'local') {
-    // Locals crave the off-the-beaten-path
-    if (landmark.tier === 'hidden')     score += 15;
-    else if (landmark.tier === 'discovered') score += 8;
+    if (landmark.tier === 'hidden')          { score += 15; reasons.push('🔍 Local hidden gem'); }
+    else if (landmark.tier === 'discovered')   score += 8;
   } else {
-    // Tourists prefer well-known, high-value spots
     if (landmark.tier === 'public') score += 8;
     score += Math.min((landmark.points || 0) / 3, 10);
   }
 
   // ── Category novelty (boost under-explored categories) ───────────────────
   const catCount = preferences.category_counts?.[landmark.category] || 0;
-  if (catCount === 0)      score += 12;  // never explored this category
-  else if (catCount < 3)  score += 5;   // lightly explored
+  if (catCount === 0)     { score += 12; reasons.push('✨ New category for you'); }
+  else if (catCount < 3)  score += 5;
+
+  // ── Rating-based boost (from user's starred check-ins) ───────────────────
+  const avgRating = preferences.avg_ratings?.[landmark.category];
+  if (avgRating != null) {
+    if (avgRating >= 4.5)      { score += 20; reasons.push('❤️ You love this category'); }
+    else if (avgRating >= 3.5) { score += 10; reasons.push('👍 Highly rated by you'); }
+    else if (avgRating < 2.5)    score -= 10;
+  }
+
+  // ── Time-decayed category affinity ───────────────────────────────────────
+  const affinity = preferences.category_affinities?.[landmark.category] || 0;
+  if (affinity >= 70)      score += 10;
+  else if (affinity >= 40) score += 5;
 
   // ── Already collected: strong penalty ────────────────────────────────────
   if (preferences.collected_ids?.includes(String(landmark.id))) score -= 60;
@@ -94,17 +109,17 @@ const calculateScore = (landmark, preferences, context) => {
   // ── Weather scoring ───────────────────────────────────────────────────────
   const { weather, timeOfDay, batteryTier } = context;
   if (weather) {
-    if (weather.isRaining && landmark.is_indoor)  score += 18;
-    if (weather.isRaining && !landmark.is_indoor) score -= 15;
-    if (weather.isHot && landmark.is_indoor)      score += 8;
-    if (weather.isClear && !landmark.is_indoor)   score += 6;
-    if (weather.isWindy && landmark.is_indoor)    score += 5;
+    if (weather.isRaining && landmark.is_indoor)  { score += 18; reasons.push('🌧️ Indoor — rainy day pick'); }
+    if (weather.isRaining && !landmark.is_indoor)   score -= 15;
+    if (weather.isHot && landmark.is_indoor)        score += 8;
+    if (weather.isClear && !landmark.is_indoor)   { score += 6;  reasons.push('☀️ Great in this weather'); }
+    if (weather.isWindy && landmark.is_indoor)      score += 5;
   }
 
   // ── Time-of-day scoring ───────────────────────────────────────────────────
   if (timeOfDay === 'morning') {
-    if (landmark.category === 'Food') score += 10;          // breakfast spots
-    if (landmark.category === 'Nature') score += 8;         // morning walks
+    if (landmark.category === 'Food')   { score += 10; reasons.push('🌅 Good breakfast spot'); }
+    if (landmark.category === 'Nature') { score += 8;  reasons.push('🌿 Lovely morning walk'); }
   }
   if (timeOfDay === 'afternoon') {
     if (landmark.category === 'Architecture') score += 8;
@@ -112,22 +127,28 @@ const calculateScore = (landmark, preferences, context) => {
     if (landmark.category === 'Art')          score += 6;
   }
   if (timeOfDay === 'evening') {
-    if (landmark.category === 'Nightlife') score += 18;
-    if (landmark.category === 'Art')       score += 10;     // galleries open late
-    if (landmark.category === 'Food')      score += 8;      // dinner spots
+    if (landmark.category === 'Nightlife') { score += 18; reasons.push('🌆 Top evening pick'); }
+    if (landmark.category === 'Art')       { score += 10; reasons.push('🎨 Galleries open late'); }
+    if (landmark.category === 'Food')      { score += 8;  reasons.push('🍽️ Great dinner spot'); }
   }
   if (timeOfDay === 'night') {
-    if (landmark.category === 'Nightlife') score += 14;
+    if (landmark.category === 'Nightlife') { score += 14; reasons.push('🌃 Perfect for tonight'); }
+  }
+
+  // ── Temporal preference amplifier ────────────────────────────────────────
+  if (preferences.preferred_time_of_day && preferences.preferred_time_of_day === timeOfDay) {
+    score += 8;
+    reasons.push('🕐 Your usual exploration time');
   }
 
   // ── Battery-aware: prefer quick/close stops when low ─────────────────────
   if (batteryTier === 'low' || batteryTier === 'critical') {
-    if ((landmark.avg_visit_duration_min || 30) <= 20)            score += 12;
-    if (landmark.distance != null && landmark.distance < 300)     score += 8;
-    if ((landmark.avg_visit_duration_min || 30) > 45)             score -= 8;
+    if ((landmark.avg_visit_duration_min || 30) <= 20)        { score += 12; reasons.push('🔋 Quick stop'); }
+    if (landmark.distance != null && landmark.distance < 300)   score += 8;
+    if ((landmark.avg_visit_duration_min || 30) > 45)           score -= 8;
   }
 
-  return Math.max(0, Math.min(score, 100));
+  return { score: Math.max(0, Math.min(score, 100)), reasons };
 };
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -142,27 +163,61 @@ const calculateScore = (landmark, preferences, context) => {
  */
 export const getRecommendations = (landmarks, preferences, context = {}) =>
   landmarks
-    .map(l => ({ ...l, score: calculateScore(l, preferences, context) }))
+    .map(l => {
+      const { score, reasons } = calculateScore(l, preferences, context);
+      return { ...l, score, reasons };
+    })
     .sort((a, b) => b.score - a.score);
 
 /**
  * Convenience: build preferences object straight from store state.
  */
-export const buildPreferences = ({ interests, visitorType, collection }) => {
+export const buildPreferences = ({
+  interests,
+  visitorType,
+  collection,
+  categoryAffinities = null,   // from getCategoryAffinities()
+  accessibilityMin = 1,
+  preferredTimeOfDay = null,   // from getPreferredTimeOfDay()
+}) => {
   const catMap = {
     architecture: 'Architecture', food: 'Food', history: 'History',
     art: 'Art', nature: 'Nature', nightlife: 'Nightlife',
   };
+
+  // Raw visit counts per category
   const category_counts = {};
   collection.forEach(c => {
     if (c.category) category_counts[c.category] = (category_counts[c.category] || 0) + 1;
+  });
+
+  // Average star ratings per category
+  const ratingTotals = {}, ratingCounts = {};
+  collection.forEach(c => {
+    if (c.category && c.rating > 0) {
+      ratingTotals[c.category] = (ratingTotals[c.category] || 0) + c.rating;
+      ratingCounts[c.category] = (ratingCounts[c.category] || 0) + 1;
+    }
+  });
+  const avg_ratings = {};
+  Object.keys(ratingTotals).forEach(cat => {
+    avg_ratings[cat] = ratingTotals[cat] / ratingCounts[cat];
+  });
+
+  // Time-decayed affinity map { Architecture: 85, Food: 40, … }
+  const category_affinities = {};
+  (categoryAffinities || []).forEach(({ category, affinity }) => {
+    category_affinities[category] = affinity;
   });
 
   return {
     preferred_categories: interests.map(i => catMap[i]).filter(Boolean),
     visitor_type: visitorType,
     category_counts,
+    category_affinities,
+    avg_ratings,
     collected_ids: collection.map(c => String(c.id)),
-    accessibility_min: 1,
+    accessibility_min: accessibilityMin,
+    preferred_time_of_day: preferredTimeOfDay,
   };
 };
