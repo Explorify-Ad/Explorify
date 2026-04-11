@@ -16,6 +16,7 @@ import { getCurrentLocation } from '../services/location';
 import { fetchAllLandmarks, fetchActiveExpeditions } from '../services/supabase';
 import useStore from '../store/useStore';
 import useBattery from '../hooks/useBattery';
+import useWeather from '../hooks/useWeather';
 import { buildPreferences } from '../utils/recommendations';
 
 export default function MapScreen() {
@@ -39,10 +40,13 @@ export default function MapScreen() {
   const [userLocation, setUserLocation] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Local context derived from time-of-day — no API needed
+  // Weather — feeds into context HUD and scoring
+  const { weather } = useWeather(userLocation?.latitude, userLocation?.longitude);
+
+  // Local context derived from time-of-day + live weather
   const hour = new Date().getHours();
   const timeSlot = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
-  const context = { weather: null, timeSlot };
+  const context = { weather, timeSlot };
 
 
   const mapRef = useRef(null);
@@ -274,7 +278,7 @@ export default function MapScreen() {
               {context.weather?.isRaining ? '🌧️' : context.weather?.isClear ? '☀️' : '🌥️'}
             </Text>
             <View>
-              <Text style={styles.contextTitle}>{context.weather?.description || 'Loading...'}</Text>
+              <Text style={styles.contextTitle}>{context.weather?.description || (userLocation ? 'Fetching weather…' : 'Locating…')}</Text>
               <Text style={styles.contextSub}>
                 {context.weather?.isRaining ? 'Indoor venues boosted' : 'Scenic spots prioritized'}
               </Text>
