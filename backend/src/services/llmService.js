@@ -1,10 +1,18 @@
 const { query } = require('../config/database');
 const Groq = require('groq-sdk');
 
-// Initialize the Groq client with the provided API key
-const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY
-});
+// Lazily initialized — only created when an LLM method is first called.
+// This lets the server start without GROQ_API_KEY and only fail on LLM endpoints.
+let _groq = null;
+function getGroq() {
+  if (!_groq) {
+    if (!process.env.GROQ_API_KEY) {
+      throw new Error('GROQ_API_KEY is not set. Add it to backend/.env to enable LLM features.');
+    }
+    _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  }
+  return _groq;
+}
 
 class LlmService {
   async getPersonalisedDescription(landmark, userProfile) {
@@ -27,7 +35,7 @@ class LlmService {
     `;
 
     try {
-      const chatCompletion = await groq.chat.completions.create({
+      const chatCompletion = await getGroq().chat.completions.create({
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
@@ -54,7 +62,7 @@ class LlmService {
     `;
 
     try {
-      const chatCompletion = await groq.chat.completions.create({
+      const chatCompletion = await getGroq().chat.completions.create({
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
         model: "llama-3.1-8b-instant", max_tokens: 80, temperature: 0.7, response_format: { type: "json_object" }
       });
@@ -70,7 +78,7 @@ class LlmService {
     const userPrompt = `Recent visits: ${recentVisits?.map(v => v.category).join(', ') || 'none'}`;
     
     try {
-      const chatCompletion = await groq.chat.completions.create({
+      const chatCompletion = await getGroq().chat.completions.create({
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
         model: "llama-3.1-8b-instant", max_tokens: 50, temperature: 0.7,
       });
@@ -86,7 +94,7 @@ class LlmService {
     const userPrompt = `Context: User likes ${cat}, weather is ${weather?.description || 'clear'}, time is ${timeOfDay || 'day'}. Goal: Visit 3 ${cat} spots.`;
 
     try {
-      const chatCompletion = await groq.chat.completions.create({
+      const chatCompletion = await getGroq().chat.completions.create({
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
         model: "llama-3.1-8b-instant", max_tokens: 100, temperature: 0.7, response_format: { type: "json_object" }
       });
