@@ -77,6 +77,7 @@ function buildAchievements(collection, streak, totalQuests) {
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
+  const [refinementLoading, setRefinementLoading] = useState(false);
 
   const userName       = useStore((s) => s.userName);
   const getLevel       = useStore((s) => s.getLevel);
@@ -97,6 +98,8 @@ export default function ProfileScreen() {
   const walkPaceSamples    = useStore((s) => s.walkPaceSamples);
   const getTotalXP         = useStore((s) => s.getTotalXP);
   const explorerTypeHistory = useStore((s) => s.explorerTypeHistory);
+  const refinementMessage  = useStore((s) => s.refinementMessage);
+  const recommendedInterestAdditions = useStore((s) => s.recommendedInterestAdditions);
   const navigation         = useNavigation();
 
   const level        = getLevel();
@@ -294,17 +297,46 @@ export default function ProfileScreen() {
           ))}
         </View>
 
-        <TouchableOpacity 
-          style={[styles.visitorOption, { marginTop: 10, borderColor: theme.primary, backgroundColor: `${theme.primary}05`, width: '100%' }]}
-          onPress={() => {
-            const fetchRefinement = useStore.getState().fetchRefinement;
-            fetchRefinement().then(() => {
-              const msg = useStore.getState().refinementMessage;
-              if (msg) Alert.alert('Explorer Assistant', msg);
-            });
+        <TouchableOpacity
+          style={[
+            styles.visitorOption,
+            { marginTop: 10, borderColor: theme.primary, backgroundColor: `${theme.primary}05`, width: '100%' },
+            refinementLoading && { opacity: 0.5 }
+          ]}
+          onPress={async () => {
+            if (refinementLoading || collection.length === 0) return;
+            setRefinementLoading(true);
+            const store = useStore.getState();
+            await store.fetchRefinement();
+            const msg = store.refinementMessage;
+            const recs = store.recommendedInterestAdditions;
+
+            if (msg) {
+              Alert.alert(
+                '🧠 Taste Profile Insight',
+                msg,
+                [
+                  {
+                    text: recs?.length > 0 ? '✅ Add to Interests' : 'Got It',
+                    onPress: () => {
+                      if (recs?.length > 0) {
+                        // Auto-add recommended categories
+                        const newInterests = [...new Set([...interests, ...recs])];
+                        setInterests(newInterests);
+                      }
+                    },
+                  },
+                  { text: 'Not Now', style: 'cancel' },
+                ]
+              );
+            }
+            setRefinementLoading(false);
           }}
+          disabled={refinementLoading}
         >
-          <Text style={[styles.visitorLabel, { color: theme.primary, textAlign: 'center', marginBottom: 0 }]}>🧠 Refine My Taste (AI Insight)</Text>
+          <Text style={[styles.visitorLabel, { color: theme.primary, textAlign: 'center', marginBottom: 0 }]}>
+            {refinementLoading ? '⏳ Analyzing...' : collection.length === 0 ? '🧠 Explore first to refine taste' : '🧠 Refine My Taste'}
+          </Text>
         </TouchableOpacity>
 
 

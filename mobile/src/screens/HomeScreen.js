@@ -34,6 +34,7 @@ import useWeather from '../hooks/useWeather';
 import useLocation from '../hooks/useLocation';
 import useBattery from '../hooks/useBattery';
 import { useTheme } from '../context/ThemeContext';
+import { DriftAlertModal } from '../components/DriftAlertModal';
 
 const { width } = Dimensions.get('window');
 
@@ -477,11 +478,12 @@ export default function HomeScreen({ navigation }) {
   const { weather } = useWeather(location?.latitude, location?.longitude);
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={{ paddingTop: insets.top + 20, paddingBottom: 100 }}
-      showsVerticalScrollIndicator={false}
-    >
+    <View style={styles.screenContainer}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingTop: insets.top + 20, paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
+      >
       <UserHeader name={userName} level={level} currentXP={currentXP} totalXP={totalXP} />
 
       <WeatherWidget weather={weather} />
@@ -567,10 +569,18 @@ export default function HomeScreen({ navigation }) {
         </LinearGradient>
       </TouchableOpacity>
     </ScrollView>
+
+      {/* Drift Alert Modal — triggered when interests shift */}
+      <DriftAlertModal />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screenContainer: {
+    flex: 1,
+    backgroundColor: '#FFFDF8',
+  },
   container: {
     flex: 1,
     backgroundColor: '#FFFDF8',

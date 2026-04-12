@@ -88,7 +88,7 @@ const useStore = create((set, get) => ({
   driftAlert: null,
   lastRouteGenerated: null,   // { ids: string[], timestamp: number }
   explorerTypeHistory: [],    // [{ type: string, timestamp: number }]
-  refinementMessage: null,
+  recommendedInterestAdditions: [], // Categories to suggest adding based on drift
 
   // ─── Actions ──────────────────────────────────────────────────────────────
 
@@ -162,6 +162,7 @@ const useStore = create((set, get) => ({
   },
 
   clearDriftAlert: () => set({ driftAlert: null }),
+  setDriftAlert: (alert) => set({ driftAlert: alert }),
 
   /** Returns average dwell time (min) per category from local collection. */
   getCategoryDwellAverages: () => {
@@ -464,19 +465,122 @@ const useStore = create((set, get) => ({
   },
 
   fetchRefinement: async () => {
-    // Refinement messages require the backend LLM service.
-    // When the backend is running, this will work automatically.
-    // No-op if backend is unavailable.
-    try {
-      const { authUser, collection } = get();
-      if (!authUser?.id) return;
-      const api = (await import('../services/api')).default;
-      const recent = collection.slice(-5);
-      const response = await api.post('/profile/refinement', {
-        user_id: authUser.id, recentVisits: recent,
-      });
-      set({ refinementMessage: response.data.message });
-    } catch (_) {}
+    // Smart refinement: combines current stated interests + actual exploration drift
+    // Detects: (1) what user said they like, (2) what they're actually exploring more
+    const { collection, interests } = get();
+
+    if (collection.length === 0) {
+      set({ refinementMessage: '🚀 Start exploring! Check in to nearby landmarks and your taste profile will evolve.' });
+      return;
+    }
+
+    // ─── CURRENT TASTES: What user explicitly stated ───────────────────────────
+    const statedCats = interests.map(i => i.toLowerCase());
+
+    // ─── ACTUAL EXPLORATION: What they're actually visiting ──────────────────────
+    const catCounts = {};
+    const recentCatCounts = {}; // Last 5 visits for drift detection
+    collection.forEach((c, idx) => {
+      if (c.category) {
+        const cat = c.category.toLowerCase();
+        catCounts[cat] = (catCounts[cat] || 0) + 1;
+        // Recent: last 5 visits
+        if (idx >= collection.length - 5) {
+          recentCatCounts[cat] = (recentCatCounts[cat] || 0) + 1;
+        }
+      }
+    });
+
+    const sortedAllTime = Object.entries(catCounts).sort((a, b) => b[1] - a[1]);
+    const sortedRecent = Object.entries(recentCatCounts).sort((a, b) => b[1] - a[1]);
+
+    const topAllTime = sortedAllTime[0]?.[0];
+    const topAllTimeCount = sortedAllTime[0]?.[1] || 0;
+    const topRecent = sortedRecent[0]?.[0];
+    const topRecentCount = sortedRecent[0]?.[1] || 0;
+
+    // ─── DRIFT DETECTION: Compare recent vs all-time ──────────────────────────
+    const allTimeDominance = collection.length > 0 ? (topAllTimeCount / collection.length) : 0;
+    const recentDominance = Object.values(recentCatCounts).reduce((a, b) => a + b, 0) > 0
+      ? (topRecentCount / Object.values(recentCatCounts).reduce((a, b) => a + b, 0))
+      : 0;
+
+    const isDrifting = topRecent && topAllTime && topRecent !== topAllTime;
+    const driftMagnitude = Math.abs(recentDominance - allTimeDominance);
+
+    // ─── GENERATE INSIGHTS & DRIFT ALERTS ────────────────────────────────────────
+    let message = '';
+    let recommendedAdditions = [];
+    let driftAlert = null;
+
+    // ─── Check for NEW INTEREST (strong recent dominance, not stated) ─────────────
+    if (isDrifting && driftMagnitude > 0.3 && !statedCats.includes(topRecent)) {
+      recommendedAdditions.push(topRecent);
+      // Trigger modal for new interest
+      driftAlert = {
+        drifted: true,
+        type: 'new_interest', // User should ADD this
+        to: topRecent,
+        from: topAllTime,
+        visitCount: topRecentCount,
+        confidence: Math.min(1, recentDominance),
+      };
+      message = `🎯 Drift Detected! You're exploring **${topRecent}** way more now (${topRecentCount}/5 recent visits). ` +
+        `Should we add it to your interests alongside your current ${statedCats.join(', ')}?`;
+    }
+    // ─── Check for ABANDONED INTEREST (stated but low recent activity) ────────────
+    else if (statedCats.includes(topAllTime) && recentCatCounts[topAllTime] === undefined) {
+      // User stated this interest but hasn't visited recently
+      driftAlert = {
+        drifted: true,
+        type: 'abandoned_interest', // User should REMOVE this
+        to: topAllTime,
+        from: topRecent,
+        visitCount: topAllTimeCount,
+        confidence: 0.6, // Moderate confidence (needs manual confirmation)
+      };
+      message = `📍 Interest Change Detected! You used to love **${topAllTime}**, but haven't visited lately. Should we remove it?`;
+    }
+    // Case 2: Strong dominance + stated interest = reinforce
+    else if (allTimeDominance > 0.6 && statedCats.includes(topAllTime)) {
+      message = `✨ Perfect Match! You're a true **${topAllTime}** enthusiast—${topAllTimeCount} visits confirm it. ` +
+        `${sortedAllTime[1] ? `Mix in some ${sortedAllTime[1][0]} for variety?` : 'Keep exploring!'}`;
+    }
+    // Case 3: Strong dominance but NOT stated = suggest add
+    else if (allTimeDominance > 0.6 && !statedCats.includes(topAllTime)) {
+      recommendedAdditions.push(topAllTime);
+      message = `💡 Mismatch Found! You're heavily into **${topAllTime}** (${topAllTimeCount} visits) but haven't listed it. ` +
+        `Add it to ${statedCats.length > 0 ? `your current interests (${statedCats.join(', ')})` : 'start building your profile'}.`;
+    }
+    // Case 4: Balanced explorer with stated interests
+    else if (statedCats.length > 0 && sortedAllTime.length >= 2) {
+      message = `🌟 Balanced Explorer! Your interests align well: ${statedCats.join(', ')}. ` +
+        `You're mixing ${topAllTime} (${topAllTimeCount}x) with ${sortedAllTime[1]?.[0] || 'other categories'}—great variety!`;
+    }
+    // Case 5: Recommended additions based on actual behavior
+    else if (sortedAllTime.length > 0 && statedCats.length === 0) {
+      recommendedAdditions.push(topAllTime);
+      message = `🚀 New Explorer! You've been checking out ${topAllTime} (${topAllTimeCount} visits). ` +
+        `Let's officially add your top interests: ${[topAllTime, sortedAllTime[1]?.[0]].filter(Boolean).join(', ')}.`;
+    }
+    // Case 6: Default
+    else {
+      message = `🎯 Keep Exploring! You're building a diverse taste across ${Object.keys(catCounts).length} categories. ` +
+        `${topAllTime ? `Your favorite so far: ${topAllTime}` : 'More data needed for insights.'}`;
+    }
+
+    // Store recommendation: which categories to add
+    const updateState = {
+      refinementMessage: message,
+      recommendedInterestAdditions: recommendedAdditions,
+    };
+
+    // Trigger drift modal if detected
+    if (driftAlert) {
+      updateState.driftAlert = driftAlert;
+    }
+
+    set(updateState);
   },
 
   getDailyChallenge: () => {
