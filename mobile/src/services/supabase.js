@@ -218,7 +218,6 @@ export async function createExpedition(userId, userName, data) {
       landmark_lon:  data.landmarkLon  ?? null,
       categories:    data.categories   ?? [],
       group_size:    data.groupSize    ?? 4,
-      company_type:  data.companyType  ?? 'solo',
       duration:      data.duration     ?? '2hr',
       dna_only:      data.dnaOnly      ?? true,
     })
@@ -273,7 +272,7 @@ export async function autoExpireExpeditions() {
   if (error) console.warn('autoExpireExpeditions error:', error.message);
 }
 
-export async function fetchActiveExpeditions(userLat, userLon, radiusMeters = 10000) {
+export async function fetchActiveExpeditions(userLat, userLon, radiusMeters = 50000) {
   // Silently expire stale expeditions before fetching
   autoExpireExpeditions().catch(() => {});
 
@@ -283,17 +282,30 @@ export async function fetchActiveExpeditions(userLat, userLon, radiusMeters = 10
     .select(`*, expedition_members(user_id, user_name)`)
     .eq('status', 'active')
     .order('created_at', { ascending: false });
-  if (error) throw error;
 
-  return data
+  if (error) {
+    console.warn('[SUPABASE DEBUG] fetchActiveExpeditions error:', error.message, error.details);
+    throw error;
+  }
+
+  console.log('[SUPABASE DEBUG] total active expeditions from DB:', data?.length,
+    data?.map(e => ({ title: e.title, lat: e.landmark_lat, lon: e.landmark_lon })));
+
+  const mapped = data
     .map((exp) => ({
       ...exp,
       members: exp.expedition_members ?? [],
       distance: (exp.landmark_lat && userLat)
         ? Math.round(haversineDistance(userLat, userLon, exp.landmark_lat, exp.landmark_lon))
         : null,
-    }))
-    .filter((exp) => exp.distance === null || exp.distance <= radiusMeters);
+    }));
+
+  const filtered = mapped.filter((exp) => exp.distance === null || exp.distance <= radiusMeters);
+
+  console.log('[SUPABASE DEBUG] after radius filter (', radiusMeters, 'm):', filtered.length,
+    mapped.map(e => ({ title: e.title, distance: e.distance, kept: e.distance === null || e.distance <= radiusMeters })));
+
+  return filtered;
 }
 
 export async function updateExpeditionStatus(expeditionId, status) {

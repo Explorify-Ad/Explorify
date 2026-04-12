@@ -75,15 +75,28 @@ export default function MapScreen() {
       ]);
       setLandmarks(results || []);
 
+      console.log('[MAP DEBUG] raw expeditions from DB:', JSON.stringify(exps?.map(e => ({
+        id: e.id, title: e.title, status: e.status,
+        landmark_lat: e.landmark_lat, landmark_lon: e.landmark_lon,
+        distance: e.distance,
+      }))));
+
       // Compute DNA match scores using store state at call time
       const { interests: ints, preferences: prefs, collection: col } = useStore.getState();
       const visitorType = prefs.visitor_type || 'tourist';
       const userPreferences = buildPreferences({ interests: ints, visitorType, collection: col });
-      const userCats = new Set(userPreferences.preferred_categories);
-      const categoryCounts = userPreferences.category_counts || {};
+
+      // Normalise to lowercase for comparison — DB stores lowercase, buildPreferences returns title-case
+      const userCats = new Set(
+        userPreferences.preferred_categories.map((c) => c.toLowerCase())
+      );
+      const categoryCounts = {};
+      Object.entries(userPreferences.category_counts || {}).forEach(([k, v]) => {
+        categoryCounts[k.toLowerCase()] = v;
+      });
 
       const withMatch = (exps || []).map((exp) => {
-        const expCats = exp.categories || [];
+        const expCats = (exp.categories || []).map((c) => c.toLowerCase());
         if (!expCats.length) return { ...exp, dnaMatch: 50 };
         let score = 0;
         expCats.forEach((cat) => {
@@ -94,6 +107,9 @@ export default function MapScreen() {
         const raw = Math.round(score / expCats.length);
         return { ...exp, dnaMatch: Math.max(28, Math.min(97, raw + 30)) };
       });
+
+      console.log('[MAP DEBUG] expeditions after DNA score + distance filter:', withMatch.length,
+        withMatch.map(e => ({ title: e.title, dnaMatch: e.dnaMatch, distance: e.distance, lat: e.landmark_lat, lon: e.landmark_lon })));
 
       setExpeditions(withMatch);
     } catch (e) {
@@ -175,7 +191,7 @@ export default function MapScreen() {
         id: exp.id,
         title: exp.title,
         description: exp.description || 'Join this exciting expedition!',
-        companyType: exp.company_type || 'friends',
+        companyType: exp.company_type || exp.companyType || 'friends',
         created_by: exp.created_by,
         memberCount: exp.members?.length || 0,
         categories: exp.categories || [],

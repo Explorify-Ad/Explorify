@@ -36,4 +36,7 @@ INSERT INTO landmarks (name, latitude, longitude, category, accessibility_level,
 ('Custom House', 53.3481, -6.2526, 'architecture', 5, false, 'Stunning 18th-century neoclassical building.', 10, 15, 'discovered', ARRAY['scenic', 'architecture']),
 
 -- Landmark
-('Hapenny Bridge', 53.3464, -6.2634, 'landmark', 5, false, 'Iconic pedestrian bridge over the River Liffey.', 10, 10, 'public', ARRAY['scenic', 'landmark', 'popular']);
+('Hapenny Bridge', 53.3464, -6.2634, 'landmark', 5, false, 'Iconic pedestrian bridge over the River Liffey.', 10, 10, 'public', ARRAY['scenic', 'landmark', 'popular']),
+
+-- Campus / Docklands
+('Canvas Point Campus', 53.3492999, -6.2317608, 'architecture', 5, true, 'Modern campus hub in the Dublin Docklands, blending creative workspace and urban design.', 15, 30, 'discovered', ARRAY['modern', 'architecture', 'campus', 'docklands']);

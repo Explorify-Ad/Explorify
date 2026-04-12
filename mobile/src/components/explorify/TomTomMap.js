@@ -1,61 +1,10 @@
-import React, { useRef, useImperativeHandle, forwardRef, useMemo } from 'react';
+import React, { useRef, useImperativeHandle, forwardRef, useMemo, useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 const API_KEY = process.env.EXPO_PUBLIC_TOMTOM_API_KEY;
 
-function buildHTML(lat, lon, landmarks, expeditions = []) {
-  const expeditionsJS = expeditions
-    .filter((exp) => exp.landmark_lat != null && exp.landmark_lon != null)
-    .map((exp) => `
-      (function() {
-        var wrap = document.createElement('div');
-        wrap.style.cssText = 'position:relative;width:48px;height:48px;cursor:pointer;';
-
-        var ring = document.createElement('div');
-        ring.style.cssText = [
-          'position:absolute','top:0','left:0',
-          'width:48px','height:48px','border-radius:50%',
-          'border:2px solid rgba(255,107,107,0.55)',
-          'animation:expPulse 1.8s ease-out infinite',
-        ].join(';');
-
-        var dot = document.createElement('div');
-        dot.style.cssText = [
-          'position:absolute','top:10px','left:10px',
-          'width:28px','height:28px','border-radius:50%',
-          'background:#FF6B6B','border:2.5px solid white',
-          'box-shadow:0 2px 8px rgba(255,107,107,0.5)',
-          'font-size:13px','line-height:28px','text-align:center',
-        ].join(';');
-        dot.textContent = '\\uD83D\\uDDFA';
-
-        wrap.appendChild(ring);
-        wrap.appendChild(dot);
-
-        var _ex = 0, _ey = 0, _emoved = false;
-        wrap.addEventListener('touchstart', function(e) {
-          e.stopPropagation(); e.preventDefault();
-          _ex = e.touches[0].clientX; _ey = e.touches[0].clientY; _emoved = false;
-        }, { passive: false });
-        wrap.addEventListener('touchmove', function(e) {
-          var dx = e.touches[0].clientX - _ex, dy = e.touches[0].clientY - _ey;
-          if (Math.sqrt(dx*dx + dy*dy) > 8) _emoved = true;
-        }, { passive: true });
-        wrap.addEventListener('touchend', function(e) {
-          e.stopPropagation();
-          if (_emoved) return;
-          window.ReactNativeWebView.postMessage(
-            JSON.stringify({ type: 'expeditionPress', id: '${exp.id}' })
-          );
-        });
-        wrap.addEventListener('click', function(e) { e.stopPropagation(); });
-
-        new tt.Marker({ element: wrap, anchor: 'center' })
-          .setLngLat([${exp.landmark_lon}, ${exp.landmark_lat}])
-          .addTo(map);
-      })();
-    `).join('\n');
+function buildHTML(lat, lon, landmarks) {
 
   const markersJS = landmarks
     .map((lm) => {
@@ -224,8 +173,64 @@ function buildHTML(lat, lon, landmarks, expeditions = []) {
       }
     } catch(e) {}
 
-    // --- Expedition markers ---
-    ${expeditionsJS}
+    // --- Expedition markers (injected dynamically after load) ---
+    window._expMarkers = [];
+    window.addExpeditionMarkers = function(exps) {
+      // Remove old expedition markers
+      window._expMarkers.forEach(function(m) { m.remove(); });
+      window._expMarkers = [];
+
+      (exps || []).forEach(function(exp) {
+        if (exp.landmark_lat == null || exp.landmark_lon == null) return;
+
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'position:relative;width:48px;height:48px;cursor:pointer;';
+
+        var ring = document.createElement('div');
+        ring.style.cssText = [
+          'position:absolute','top:0','left:0',
+          'width:48px','height:48px','border-radius:50%',
+          'border:2px solid rgba(255,107,107,0.55)',
+          'animation:expPulse 1.8s ease-out infinite',
+        ].join(';');
+
+        var dot = document.createElement('div');
+        dot.style.cssText = [
+          'position:absolute','top:10px','left:10px',
+          'width:28px','height:28px','border-radius:50%',
+          'background:#FF6B6B','border:2.5px solid white',
+          'box-shadow:0 2px 8px rgba(255,107,107,0.5)',
+          'font-size:13px','line-height:28px','text-align:center',
+        ].join(';');
+        dot.textContent = '\uD83D\uDDFA';
+
+        wrap.appendChild(ring);
+        wrap.appendChild(dot);
+
+        var _ex = 0, _ey = 0, _emoved = false;
+        wrap.addEventListener('touchstart', function(e) {
+          e.stopPropagation(); e.preventDefault();
+          _ex = e.touches[0].clientX; _ey = e.touches[0].clientY; _emoved = false;
+        }, { passive: false });
+        wrap.addEventListener('touchmove', function(e) {
+          var dx = e.touches[0].clientX - _ex, dy = e.touches[0].clientY - _ey;
+          if (Math.sqrt(dx*dx + dy*dy) > 8) _emoved = true;
+        }, { passive: true });
+        wrap.addEventListener('touchend', function(e) {
+          e.stopPropagation();
+          if (_emoved) return;
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({ type: 'expeditionPress', id: exp.id })
+          );
+        });
+        wrap.addEventListener('click', function(e) { e.stopPropagation(); });
+
+        var marker = new tt.Marker({ element: wrap, anchor: 'center' })
+          .setLngLat([exp.landmark_lon, exp.landmark_lat])
+          .addTo(map);
+        window._expMarkers.push(marker);
+      });
+    };
 
     // --- Landmark markers ---
     ${markersJS}
@@ -289,13 +294,41 @@ const TomTomMap = forwardRef(function TomTomMap(
   ref,
 ) {
   const webRef = useRef(null);
-  // Memoize so a parent re-render (e.g. theme change) never reloads the WebView
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const mapReadyRef = useRef(false);
+
+  // Only rebuild the WebView HTML when location or landmarks change — NOT when expeditions change
   const source = useMemo(
-    () => ({ html: buildHTML(lat, lon, landmarks, expeditions), baseUrl: 'https://api.tomtom.com' }),
+    () => ({ html: buildHTML(lat, lon, landmarks), baseUrl: 'https://api.tomtom.com' }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lat, lon, JSON.stringify(landmarks), JSON.stringify(expeditions)],
+    [lat, lon, JSON.stringify(landmarks)],
   );
+
+  // When the source changes (map rebuilds), reset the ready flag
+  useEffect(() => {
+    mapReadyRef.current = false;
+  }, [source]);
+
+  // Inject expedition markers dynamically whenever expeditions change
+  // Uses a small retry loop in case the map isn't loaded yet
+  useEffect(() => {
+    const inject = () => {
+      webRef.current?.injectJavaScript(
+        `if (typeof window.addExpeditionMarkers === 'function') {
+          window.addExpeditionMarkers(${JSON.stringify(expeditions)});
+          true;
+        } else {
+          false;
+        }`
+      );
+    };
+
+    // Try immediately, then retry after map load delay
+    const t1 = setTimeout(inject, 500);
+    const t2 = setTimeout(inject, 1500);
+    const t3 = setTimeout(inject, 3000);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(expeditions), source]);
 
   useImperativeHandle(ref, () => ({
     flyTo: (newLat, newLon, zoom = 16) => {
