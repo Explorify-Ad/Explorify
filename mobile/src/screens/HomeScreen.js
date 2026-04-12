@@ -110,7 +110,7 @@ function WeatherWidget({ weather }) {
       <View style={styles.weatherInfo}>
         <Icon size={24} color={iconColor} strokeWidth={2.5} />
         <View style={styles.weatherTextContainer}>
-          <Text style={styles.tempText}>{Math.round(weather.temp)}°C in Dublin</Text>
+          <Text style={styles.tempText}>{Math.round(weather.temperature ?? 10)}°C in Dublin</Text>
           <Text style={styles.weatherRecText}>{recommendation}</Text>
         </View>
       </View>
