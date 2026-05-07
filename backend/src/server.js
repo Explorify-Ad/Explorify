@@ -8,6 +8,10 @@ const landmarkRoutes = require('./routes/landmarks');
 const userRoutes = require('./routes/users');
 const routeRoutes = require('./routes/routes');
 const collectionRoutes = require('./routes/collections');
+const communityRoutes = require('./routes/communities');
+const expeditionRoutes = require('./routes/expeditions');
+const questRoutes = require('./routes/quests');
+const groupRoutes = require('./routes/groups');
 const errorHandler = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
 
@@ -34,13 +38,20 @@ app.use('/api/landmarks', landmarkRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/routes', routeRoutes);
 app.use('/api/collections', collectionRoutes);
+app.use('/api/communities', communityRoutes);
+app.use('/api/expeditions', expeditionRoutes);
+app.use('/api/quests', questRoutes);
+app.use('/api/groups', groupRoutes);
+app.use('/api/profile', require('./routes/profile'));
 
 // Error handling middleware
 app.use(errorHandler);
 
 // Start server
-app.listen(PORT, () => {
-  logger.info(`Explorify API server running on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    logger.info(`Explorify API server running on port ${PORT}`);
+  });
+}
 
 module.exports = app;

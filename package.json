@@ -8,9 +8,14 @@
     "backend"
   ],
   "scripts": {
-    "mobile": "cd mobile && npm start",
-    "backend": "cd backend && npm run dev",
-    "install:all": "npm install && cd mobile && npm install && cd ../backend && npm install",
+    "mobile": "npm run start --workspace=mobile",
+    "backend": "npm run dev --workspace=backend",
+    "install:all": "npm install",
     "setup": "chmod +x scripts/setup-dev.sh && ./scripts/setup-dev.sh"
+  },
+  "dependencies": {
+    "react-dom": "19.1.0",
+    "react-native-web": "^0.21.0",
+    "react-refresh": "^0.18.0"
   }
 }

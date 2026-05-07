@@ -1,14 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// TODO: Add API key to .env
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://your-project.supabase.co';
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'your-anon-key';
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-/**
- * Supabase client instance configured for React Native.
- * Uses AsyncStorage for session persistence.
- */
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: AsyncStorage,
@@ -17,5 +12,491 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     detectSessionInUrl: false,
   },
 });
+
+// Maps Supabase category names → app display category names (case-insensitive lookup)
+const CATEGORY_MAP = {
+  // explicit DB value aliases
+  historical: 'History',
+  cultural: 'Art',
+  shopping: 'Food',
+  sports: 'Architecture',
+  landmark: 'Architecture',
+  // direct matches (lowercase)
+  architecture: 'Architecture',
+  food: 'Food',
+  nature: 'Nature',
+  history: 'History',
+  art: 'Art',
+  nightlife: 'Nightlife',
+};
+
+// Valid app category names (title-case). If the DB already stores one of these,
+// pass it through unchanged.
+const APP_CATEGORIES = new Set(['Architecture', 'Food', 'Nature', 'History', 'Art', 'Nightlife']);
+
+// Normalise a Supabase landmark row into the shape the app expects
+function normaliseLandmark(row, userLat, userLon) {
+  const { haversineDistance } = require('./tomtom');
+  const lat = parseFloat(row.latitude);
+  const lon = parseFloat(row.longitude);
+  const distance = userLat != null
+    ? Math.round(haversineDistance(userLat, userLon, lat, lon))
+    : null;
+
+  // Resolve category: direct match → case-insensitive map → default
+  const rawCat = row.category || '';
+  const category = APP_CATEGORIES.has(rawCat)
+    ? rawCat
+    : CATEGORY_MAP[rawCat.toLowerCase()] || 'Architecture';
+
+  return {
+    id: row.id,
+    name: row.name,
+    // expose as both lat/lon (internal) and latitude/longitude (compat)
+    lat,
+    lon,
+    latitude: lat,
+    longitude: lon,
+    category,
+    tier: row.tier || 'public',
+    address: row.address || '',
+    description: row.description || '',
+    points: row.points || 10,
+    avg_visit_duration_min: row.avg_visit_duration_min || 30,
+    is_indoor: row.is_indoor || false,
+    accessibility_level: row.accessibility_level || 1,
+    distance,
+    collected: false,
+  };
+}
+
+// ─── Landmarks ────────────────────────────────────────────────────────────────
+
+export async function fetchAllLandmarks(userLat, userLon) {
+  const { data, error } = await supabase
+    .from('landmarks')
+    .select('*')
+    .order('name');
+  if (error) throw error;
+  return data.map((row) => normaliseLandmark(row, userLat, userLon));
+}
+
+export async function fetchNearbyLandmarks(userLat, userLon, radiusMeters = 1000) {
+  const all = await fetchAllLandmarks(userLat, userLon);
+  return all
+    .filter((lm) => lm.distance != null && lm.distance <= radiusMeters)
+    .sort((a, b) => a.distance - b.distance);
+}
+
+// ─── Collections ──────────────────────────────────────────────────────────────
+
+export async function saveCheckIn(userId, landmark, xpEarned, feedback = {}) {
+  const { error } = await supabase.from('collections').upsert({
+    user_id: userId,
+    landmark_id: isUUID(landmark.id) ? landmark.id : null,
+    landmark_name: landmark.name,
+    landmark_lat: landmark.lat ?? landmark.latitude,
+    landmark_lon: landmark.lon ?? landmark.longitude,
+    landmark_category: landmark.category,
+    landmark_tier: landmark.tier,
+    xp_earned: xpEarned,
+    dwell_time_min: feedback.dwellTime || 0,
+    rating: feedback.rating || null,
+    notes: feedback.notes || '',
+    visited_at: new Date().toISOString(),
+  }, { onConflict: 'user_id,landmark_id', ignoreDuplicates: true });
+  if (error) console.warn('saveCheckIn error:', error.message);
+}
+
+export async function fetchCollections(userId) {
+  const { data, error } = await supabase
+    .from('collections')
+    .select('*')
+    .eq('user_id', userId)
+    .order('visited_at', { ascending: false });
+  if (error) throw error;
+  // Normalise to the same shape the store uses
+  return data.map((row) => ({
+    id: row.landmark_id || row.id,
+    name: row.landmark_name,
+    lat: parseFloat(row.landmark_lat),
+    lon: parseFloat(row.landmark_lon),
+    category: row.landmark_category,
+    tier: row.landmark_tier,
+    xpEarned: row.xp_earned,
+    checkedInAt: row.visited_at,
+  }));
+}
+
+// ─── User Profile ─────────────────────────────────────────────────────────────
+
+export async function saveUserProfile(userId, { displayName, interests, visitorType }) {
+  const { error } = await supabase.from('user_profiles').upsert({
+    id: userId,
+    display_name: displayName,
+    interests,
+    visitor_type: visitorType ?? 'tourist',
+    updated_at: new Date().toISOString(),
+  });
+  if (error) console.warn('saveUserProfile error:', error.message);
+}
+
+export async function fetchUserProfile(userId) {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('id', userId)
+    .single();
+  if (error) return null;
+  return data;
+}
+
+// ─── Adaptive routing helpers ─────────────────────────────────────────────────
+
+/**
+ * Returns per-category average dwell times (minutes) for a user, keyed by
+ * normalised category name (e.g. { History: 42, Art: 18 }).
+ * Used to personalise the route service's visit-time estimates.
+ */
+export async function fetchUserDwellTimes(userId) {
+  const { data, error } = await supabase
+    .from('collections')
+    .select('landmark_category, dwell_time_min')
+    .eq('user_id', userId)
+    .not('dwell_time_min', 'is', null)
+    .gt('dwell_time_min', 0);
+  if (error || !data?.length) return null;
+
+  const totals = {};
+  const counts = {};
+  data.forEach(({ landmark_category, dwell_time_min }) => {
+    if (!landmark_category) return;
+    totals[landmark_category] = (totals[landmark_category] || 0) + dwell_time_min;
+    counts[landmark_category] = (counts[landmark_category] || 0) + 1;
+  });
+
+  const avgs = {};
+  Object.keys(totals).forEach((cat) => {
+    avgs[cat] = Math.round(totals[cat] / counts[cat]);
+  });
+  return avgs; // { History: 42, Art: 18, ... }
+}
+
+/**
+ * Returns how many times a user has visited each category.
+ * Passed to the route service as preferences.category_counts so the novelty
+ * bonus can boost under-explored categories.
+ */
+export async function fetchCategoryCounts(userId) {
+  const { data, error } = await supabase
+    .from('collections')
+    .select('landmark_category')
+    .eq('user_id', userId);
+  if (error || !data?.length) return null;
+
+  const counts = {};
+  data.forEach(({ landmark_category }) => {
+    if (landmark_category) counts[landmark_category] = (counts[landmark_category] || 0) + 1;
+  });
+  return counts; // { History: 8, Nature: 1, ... }
+}
+
+// ─── Expeditions ──────────────────────────────────────────────────────────────
+
+export async function createExpedition(userId, userName, data) {
+  // 1. Insert the expedition row
+  const { data: exp, error } = await supabase
+    .from('expeditions')
+    .insert({
+      title:         data.title,
+      description:   data.description  ?? '',
+      created_by:    userId,
+      creator_name:  userName,
+      landmark_id:   data.landmarkId   ?? null,
+      landmark_name: data.landmarkName ?? null,
+      landmark_lat:  data.landmarkLat  ?? null,
+      landmark_lon:  data.landmarkLon  ?? null,
+      categories:    data.categories   ?? [],
+      group_size:    data.groupSize    ?? 4,
+      duration:      data.duration     ?? '2hr',
+      dna_only:      data.dnaOnly      ?? true,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+
+  // 2. Add the creator as the first member
+  await joinExpedition(exp.id, userId, userName);
+
+  return exp;
+}
+
+export async function joinExpedition(expeditionId, userId, userName) {
+  const { error } = await supabase
+    .from('expedition_members')
+    .upsert({ expedition_id: expeditionId, user_id: userId, user_name: userName },
+             { onConflict: 'expedition_id,user_id', ignoreDuplicates: true });
+  if (error) throw error;
+}
+
+export async function leaveExpedition(expeditionId, userId) {
+  const { error } = await supabase
+    .from('expedition_members')
+    .delete()
+    .eq('expedition_id', expeditionId)
+    .eq('user_id', userId);
+  if (error) throw error;
+}
+
+export async function fetchExpeditionMembers(expeditionId) {
+  const { data, error } = await supabase
+    .from('expedition_members')
+    .select('*')
+    .eq('expedition_id', expeditionId)
+    .order('joined_at');
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Auto-end any active expedition that was created more than 24 hours ago.
+ * Called silently on each fetchActiveExpeditions load.
+ */
+export async function autoExpireExpeditions() {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { error } = await supabase
+    .from('expeditions')
+    .update({ status: 'ended' })
+    .eq('status', 'active')
+    .lt('created_at', cutoff);
+  if (error) console.warn('autoExpireExpeditions error:', error.message);
+}
+
+export async function fetchActiveExpeditions(userLat, userLon, radiusMeters = 50000) {
+  // Silently expire stale expeditions before fetching
+  autoExpireExpeditions().catch(() => {});
+
+  const { haversineDistance } = require('./tomtom');
+  const { data, error } = await supabase
+    .from('expeditions')
+    .select(`*, expedition_members(user_id, user_name)`)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.warn('[SUPABASE DEBUG] fetchActiveExpeditions error:', error.message, error.details);
+    throw error;
+  }
+
+  console.log('[SUPABASE DEBUG] total active expeditions from DB:', data?.length,
+    data?.map(e => ({ title: e.title, lat: e.landmark_lat, lon: e.landmark_lon })));
+
+  const mapped = data
+    .map((exp) => ({
+      ...exp,
+      members: exp.expedition_members ?? [],
+      distance: (exp.landmark_lat && userLat)
+        ? Math.round(haversineDistance(userLat, userLon, exp.landmark_lat, exp.landmark_lon))
+        : null,
+    }));
+
+  const filtered = mapped.filter((exp) => exp.distance === null || exp.distance <= radiusMeters);
+
+  console.log('[SUPABASE DEBUG] after radius filter (', radiusMeters, 'm):', filtered.length,
+    mapped.map(e => ({ title: e.title, distance: e.distance, kept: e.distance === null || e.distance <= radiusMeters })));
+
+  return filtered;
+}
+
+export async function updateExpeditionStatus(expeditionId, status) {
+  const { error } = await supabase
+    .from('expeditions')
+    .update({ status })
+    .eq('id', expeditionId);
+  if (error) throw error;
+}
+
+// ─── Communities ──────────────────────────────────────────────────────────────
+
+export async function fetchCommunities(userId = null) {
+  const { data: communities, error: ce } = await supabase
+    .from('communities')
+    .select('*')
+    .order('name');
+  if (ce) throw ce;
+
+  if (userId) {
+    const { data: memberships, error: me } = await supabase
+      .from('community_members')
+      .select('community_id')
+      .eq('user_id', userId);
+    if (me) throw me;
+
+    const memberSet = new Set((memberships || []).map(m => m.community_id));
+    return communities.map(c => ({
+      ...c,
+      is_member: memberSet.has(c.id)
+    }));
+  }
+
+  return communities;
+}
+
+export async function fetchCommunityChannels(communityId) {
+  const { data, error } = await supabase
+    .from('community_channels')
+    .select('*')
+    .eq('community_id', communityId)
+    .order('name');
+  if (error) throw error;
+  return data || [];
+}
+
+export async function joinCommunity(communityId, userId) {
+  const { error } = await supabase
+    .from('community_members')
+    .upsert({ community_id: communityId, user_id: userId },
+             { onConflict: 'community_id,user_id', ignoreDuplicates: true });
+  if (error) throw error;
+}
+
+/** All expeditions the user has joined (active + ended), newest first. */
+export async function fetchMyExpeditions(userId) {
+  const { data: memberships, error: me } = await supabase
+    .from('expedition_members')
+    .select('expedition_id')
+    .eq('user_id', userId);
+  if (me) throw me;
+
+  const ids = (memberships || []).map((m) => m.expedition_id);
+  if (!ids.length) return [];
+
+  const { data, error } = await supabase
+    .from('expeditions')
+    .select('*, expedition_members(user_id, user_name)')
+    .in('id', ids)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+
+  return (data || []).map((exp) => ({
+    ...exp,
+    members: exp.expedition_members ?? [],
+    isCreator: exp.created_by === userId,
+  }));
+}
+
+// ─── Messages ─────────────────────────────────────────────────────────────────
+
+export async function fetchMessages(expeditionId) {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('expedition_id', expeditionId)
+    .order('created_at');
+  if (error) throw error;
+  return data;
+}
+
+export async function sendMessage(expeditionId, senderId, senderName, content, type = 'text', metadata = {}) {
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({ expedition_id: expeditionId, sender_id: senderId, sender_name: senderName,
+              content, type, metadata })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function sendDirectMessage(senderId, senderName, peerId, content) {
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({ dm_peer_id: peerId, sender_id: senderId, sender_name: senderName,
+              content, type: 'text', metadata: {} })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchDirectMessages(userId, peerId) {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .is('expedition_id', null)
+    .or(`and(sender_id.eq.${userId},dm_peer_id.eq.${peerId}),and(sender_id.eq.${peerId},dm_peer_id.eq.${userId})`)
+    .order('created_at');
+  if (error) throw error;
+  return data;
+}
+
+export function subscribeToMessages(expeditionId, onMessage) {
+  return supabase
+    .channel(`expedition_messages:${expeditionId}`)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'messages',
+      filter: `expedition_id=eq.${expeditionId}`,
+    }, (payload) => onMessage(payload.new))
+    .subscribe();
+}
+
+export async function sendChannelMessage(channelId, senderId, senderName, content, type = 'text', metadata = {}) {
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({ 
+      channel_id: channelId, 
+      sender_id: senderId, 
+      sender_name: senderName,
+      content, 
+      type, 
+      metadata 
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchChannelMessages(channelId) {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('channel_id', channelId)
+    .order('created_at');
+  if (error) throw error;
+  return data;
+}
+
+export function subscribeToChannelMessages(channelId, onMessage) {
+  return supabase
+    .channel(`channel_messages:${channelId}`)
+    .on('postgres_changes', {
+      event: 'INSERT', 
+      schema: 'public', 
+      table: 'messages',
+      filter: `channel_id=eq.${channelId}`,
+    }, (payload) => onMessage(payload.new))
+    .subscribe();
+}
+
+export function subscribeToDMs(userId, onMessage) {
+  return supabase
+    .channel(`dm:${userId}`)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'messages',
+      filter: `dm_peer_id=eq.${userId}`,
+    }, (payload) => onMessage(payload.new))
+    .subscribe();
+}
+
+export function unsubscribe(channel) {
+  supabase.removeChannel(channel);
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function isUUID(str) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str));
+}
 
 export default supabase;

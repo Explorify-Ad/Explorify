@@ -19,6 +19,15 @@ export default function LandmarkCard({ landmark, onPress }) {
       <Text style={styles.description} numberOfLines={2}>
         {landmark.description}
       </Text>
+      {landmark.reasons && landmark.reasons.length > 0 && (
+        <View style={styles.reasonsContainer}>
+          {landmark.reasons.map((reason, idx) => (
+            <View key={idx} style={styles.reasonTag}>
+              <Text style={styles.reasonText}>✨ {reason}</Text>
+            </View>
+          ))}
+        </View>
+      )}
       <View style={styles.footer}>
         <Text style={styles.accessibility}>
           ♿ {landmark.accessibility_level}/5
@@ -36,16 +45,18 @@ export default function LandmarkCard({ landmark, onPress }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 20,
     padding: 16,
     marginHorizontal: 16,
-    marginVertical: 6,
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 4,
   },
   header: {
     flexDirection: 'row',
@@ -91,5 +102,25 @@ const styles = StyleSheet.create({
   indoor: {
     fontSize: 12,
     color: '#666',
+  },
+  reasonsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  reasonTag: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+  },
+  reasonText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4338CA',
   },
 });
